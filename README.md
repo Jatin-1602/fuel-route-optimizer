@@ -1,29 +1,26 @@
 # Fuel Route Optimizer
 
-A Django REST API that plans a driving route between two US locations and picks the **most cost-effective fuel stops** along it. It assumes a vehicle with a 500-mile range at 10 mpg, uses the provided truck-stop price list, and returns the route as a map. **Most requests cost exactly one routing API call** (OpenRouteService), and repeats cost none.
+A Django REST API that plans a driving route between two US locations and chooses **cost-effective fuel stops** along it. It uses the provided truck-stop price list, a vehicle with a 500-mile range at 10 mpg, and returns the route as GeoJSON plus an interactive map. A typical request makes **one** routing API call (OpenRouteService), and a repeated request makes **none**.
 
-```
-GET /api/v1/route/?start=New York, NY&finish=Los Angeles, CA
-→ 7 fuel stops, $860.57 total fuel cost (+$7.69 vs the 19-stop pure-cost optimum), GeoJSON route, map_url
-```
+On the recorded New York → Los Angeles route (2,811.6 mi), the default plan makes **7 stops** and costs **$860.57**. That is $7.69 more than the 19-stop pure-cost optimum ($852.87), and $120.59 less than paying the corridor's average price.
 
 ## Features → requirements
 
-| Requirement | How |
+| Requirement | How it is met |
 |---|---|
-| Start/finish inside the USA | `"City, ST"`, `"lat,lon"` or a street address; non-US input → 422 `location_outside_usa` |
-| Map of the route | GeoJSON `FeatureCollection` in the JSON response, plus `map_url` → interactive Leaflet/OpenStreetMap page |
-| Cost-effective fuel stops | Provably optimal greedy (pure cost) and an exact DP with a per-stop penalty (default $15), both checked against a brute-force solver |
-| 500-mile range, multiple stops | Tank = range / mpg (50 gal); every leg ≤ range; configurable `max_range_miles` and `mpg` |
-| Total fuel cost at 10 mpg | `summary.total_fuel_cost`, a per-stop breakdown, and savings vs the corridor's average price |
-| Provided fuel price file | Cleaned, de-duplicated, US-only, geocoded offline (99.7% of stations) |
-| Free map/routing API | OpenRouteService (HeiGIT) for routing; OpenStreetMap tiles for the map |
-| Fast | Station index and gazetteer in memory, KD-tree corridor search, layered caching; see [Performance](#performance) |
-| Few routing calls | 1 call per new trip, 0 when cached, ≤ 3 with free-text street addresses (`meta.external_api_calls`) |
+| Start and finish inside the USA | Accepts `"City, ST"`, `"lat,lon"` or a US street address; anything else → 422 `location_outside_usa` |
+| Map of the route | GeoJSON `FeatureCollection` (route line, start, finish, numbered stops) in the JSON, plus `map_url` → Leaflet/OpenStreetMap page |
+| Optimal, cost-effective fuel stops | Pure cost: provably optimal greedy. Default: exact DP minimising *fuel cost + $15 per stop*. Both verified against a brute-force solver ([ALGORITHM.md](docs/ALGORITHM.md)) |
+| 500-mile range, multiple stops | Tank = range ÷ mpg = 50 gal; no leg between fuel sources exceeds the range (`summary.largest_leg_miles`) |
+| Total fuel cost at 10 mpg | `summary.total_fuel_cost`, per-stop gallons and cost, the pure-cost optimum, and savings vs the corridor's average price |
+| Use the provided price file | Cleaned (US only, de-duplicated) and geocoded offline: 6,604 of 6,626 stations (99.67%) ([DATA_PIPELINE.md](docs/DATA_PIPELINE.md)) |
+| Free map and routing API | OpenRouteService via the HeiGIT gateway for routing; OpenStreetMap tiles for the map |
+| Fast | Stations and gazetteer in memory, KD-tree corridor search, three cache layers; cached response 7–36 ms ([Performance](#performance)) |
+| Few routing API calls | 1 per new trip, 0 when cached, ≤ 3 with street addresses; reported in `meta.external_api_calls` |
 
 ## Tech stack
 
-Python 3.12 · **Django 6.1.2** · Django REST Framework 3.18.3 · drf-spectacular 0.30.0 (OpenAPI / Swagger UI) · NumPy 2.5.4 + SciPy 1.18.1 (KD-tree) · requests 2.34.2 · SQLite · gunicorn 26.2.0 · pytest + ruff
+Python 3.12 · **Django 6.1.2** · Django REST Framework 3.18.3 · drf-spectacular 0.30.0 (OpenAPI/Swagger) · NumPy 2.5.4 · SciPy 1.18.1 (KD-tree) · requests 2.34.2 · django-environ 0.14.0 · SQLite · gunicorn 26.2.0 · pytest 9.1.1 · ruff 0.17.1
 
 ## Quickstart
 
@@ -31,12 +28,12 @@ Python 3.12 · **Django 6.1.2** · Django REST Framework 3.18.3 · drf-spectacul
 git clone <repo-url> fuel-route-optimizer && cd fuel-route-optimizer
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-cp .env.example .env          # then set ORS_API_KEY=... (free key: https://account.heigit.org/manage/key)
+cp .env.example .env            # then set ORS_API_KEY=… (free "Basic Key": https://account.heigit.org/manage/key)
 python manage.py migrate && python manage.py load_stations
-python manage.py runserver    # http://localhost:8000/api/docs/
+python manage.py runserver      # Swagger UI: http://localhost:8000/api/docs/
 ```
 
-The geocoded station data is committed, so no geocoding step or API key is needed to load it. The key is only used for routing.
+The geocoded station data is committed, so setup needs no geocoding run. The API key is only needed for routing. More detail, including macOS/Windows notes and troubleshooting, is in [docs/SETUP.md](docs/SETUP.md).
 
 ## Example
 
@@ -44,51 +41,65 @@ The geocoded station data is committed, so no geocoding step or API key is neede
 curl "http://localhost:8000/api/v1/route/?start=Chicago,%20IL&finish=Houston,%20TX&include_geometry=false"
 ```
 
-The response, trimmed:
+Response (trimmed; values from the recorded Chicago → Houston route):
 
 ```json
 {
+  "start":  {"query": "Chicago, IL", "name": "Chicago, IL", "lat": 41.83705, "lon": -87.68494, "resolved_by": "offline"},
   "summary": {
-    "total_distance_miles": 1081.8, "total_fuel_cost": 319.53, "number_of_stops": 3,
+    "total_distance_miles": 1081.8, "number_of_stops": 3, "total_fuel_cost": 319.53,
     "pure_cost_optimum": {"total_fuel_cost": 317.48, "number_of_stops": 8},
-    "extra_cost_vs_pure_optimum": 2.05, "estimated_savings": 37.74, "largest_leg_miles": 475.5
+    "extra_cost_vs_pure_optimum": 2.05, "baseline_cost_at_avg_corridor_price": 357.27,
+    "estimated_savings": 37.74, "largest_leg_miles": 475.5, "stop_penalty": 15.0
   },
-  "fuel_stops": [{"order": 1, "name": "QUIKTRIP #7205", "city": "Lansing", "state": "IL",
-                  "price_per_gallon": 3.079, "mile_marker": 18.0, "gallons_purchased": 29.85, "cost": 91.91}, "..."],
+  "fuel_stops": [
+    {"order": 1, "name": "QUIKTRIP #7205", "city": "Lansing", "state": "IL", "mile_marker": 18.0,
+     "price_per_gallon": 3.079, "gallons_purchased": 29.85, "cost": 91.91},
+    {"order": 2, "name": "HUCKS FOOD & FUEL #379", "city": "Marion", "state": "IL", "mile_marker": 316.5,
+     "price_per_gallon": 2.929, "gallons_purchased": 47.55, "cost": 139.27},
+    {"order": 3, "name": "Quiktrip #7900", "city": "Texarkana", "state": "TX", "mile_marker": 792.0,
+     "price_per_gallon": 2.857, "gallons_purchased": 28.98, "cost": 82.8}
+  ],
   "route": null,
-  "map_url": "http://localhost:8000/api/v1/route/map/?start=Chicago%2C+IL&...",
-  "meta": {"external_api_calls": 1, "cache_hit": false, "timings_ms": {"routing": 890.6, "corridor": 3.1, "optimize": 12.5}}
+  "map_url": "http://localhost:8000/api/v1/route/map/?start=Chicago%2C+IL&finish=Houston%2C+TX&…",
+  "meta": {"external_api_calls": 1, "external_api_attempts": 1, "cache_hit": false, "stations_considered": 179}
 }
 ```
 
+The first stop's cost also covers the fuel burned to reach it, so `total_fuel_cost` is the cost of every gallon used on the trip. The other `start_fuel` modes are `full` and a number of gallons; see [API.md](docs/API.md).
+
 ## How many routing API calls?
 
-| Request | Calls |
+| Request | `external_api_calls` |
 |---|---|
-| `"City, ST"` or `"lat,lon"` for both ends (resolved offline) | **1** (directions) |
-| Same request again (response cache) | **0** |
-| Same trip with different vehicle parameters (route cache) | **0** |
+| `"City, ST"` or `"lat,lon"` at both ends (resolved offline from the Census gazetteer) | **1** (directions) |
+| The same request again (response cache) | **0** |
+| The same trip with different vehicle parameters, e.g. `mpg`, `start_fuel` or `stop_penalty` (route cache) | **0** |
 | Opening `map_url` after the JSON request | **0** |
-| Free-text street address at one or both ends | **2–3** (geocode per address, cached 30 days, + directions) |
+| A free-text street address at one or both ends | **2–3** (one geocode per address, cached for 30 days, plus directions) |
 
-`meta.external_api_attempts` also counts retries. A stalled request is retried once after the 10 s read timeout, and 502/503/504 or connection errors are retried up to twice.
+`meta.external_api_attempts` additionally counts retries. Directions have a 30 s read timeout and geocoding 10 s. Either is retried once on a read timeout, and connection errors or 502/503/504 are retried up to twice ([ADR-009](docs/DESIGN_DECISIONS.md#adr-009--timeouts-and-retries-for-openrouteservice)).
+
+> **The first long route can take 10–20 s** while OpenRouteService computes it. Repeats are cached and return in milliseconds. ORS also stalls occasionally, and the single retry usually recovers.
 
 ## Performance
 
-Measured with `scripts/benchmark.py` against **gunicorn 26.2.0** (2 workers × 4 threads, `--preload`, `WARM_ON_STARTUP=1`). Values are client wall time p50 in ms:
+Measured with `scripts/benchmark.py` against **gunicorn 26.2.0** (2 workers × 4 threads, `--preload`, `WARM_ON_STARTUP=1`) on 2026-10-18. Values are client wall time, p50, in ms ([raw output](docs/benchmarks/2026-10-18-gunicorn.md)):
 
-| Route | Response | Cold (after `clear_cache`) | Warm-ORS (route cached, all else recomputed) | Cached |
+| Route | Response | Cold (after `clear_cache`, 1 ORS call) | Warm-ORS (route cached, everything else recomputed) | Cached |
 |---|---|---|---|---|
-| NYC → LA (2,812 mi) | full (171 KB) | 15,667* | 154 | **38** |
-| NYC → LA | lean (4 KB) | 1,794 | 95 | **9** |
-| Chicago → Houston (1,082 mi) | full (63 KB) | 964* | 68 | **19** |
-| Chicago → Houston | lean | 899 | 45 | **8** |
-| Dallas → Austin (195 mi) | full (16 KB) | 509 | 29 | **15** |
-| Dallas → Austin | lean | 496 | 24 | **9** |
+| NYC → LA (2,812 mi) | full, 171 KB | 1,546 | 151 | **36** |
+| NYC → LA | lean, 4 KB | 1,890 | 93 | **7** |
+| Chicago → Houston (1,082 mi) | full, 63 KB | 1,184 | 66 | **20** |
+| Chicago → Houston | lean, 3 KB | 1,014 | 46 | **8** |
+| Dallas → Austin | full, 16 KB | 432 | 28 | **12** |
+| Dallas → Austin | lean, 2 KB | 451 | 22 | **8** |
 
-\* *Upstream variance.* On 2026-10-18, OpenRouteService often took more than 10 s to compute a long route the first time, and the identical request returned in about 1–2 s moments later. Several cold "full" requests therefore ended in 504 after the timeout plus one retry. The cold numbers are ORS latency. Our own processing is the warm-ORS column (corridor search ~5 ms and optimizer ~35 ms on NYC → LA).
+- **Cold** is dominated by OpenRouteService. The p95 shows its variance: 13.7 s for NYC → LA full, and 29.4 s for lean, where one 30 s timeout was rescued by the retry.
+- **Warm-ORS** is our own processing. On NYC → LA that's about 120 ms on the server: geometry ~12 ms, corridor search ~5 ms, stop-penalty DP ~33 ms, plus the pure-cost optimum and response building.
+- On Django's dev server, cached responses take about 50 ms because of how `runserver` writes to the socket; the server's own time is about 2 ms. See [runserver results](docs/benchmarks/2026-10-18-runserver.md).
 
-Full results, including runserver and p95: [docs/benchmarks/](docs/benchmarks/). To reproduce:
+To reproduce (the cold phase spends 18 ORS calls):
 
 ```bash
 WARM_ON_STARTUP=1 ROUTE_THROTTLE_RATE=1000/min gunicorn config.wsgi --preload --workers 2 --threads 4 -b 127.0.0.1:8000
@@ -97,19 +108,47 @@ python scripts/benchmark.py --base-url http://localhost:8000 --label gunicorn
 
 ## Postman
 
-Import [`postman/FuelRouteOptimizer.postman_collection.json`](postman/) and the `local` environment, then run the collection top to bottom. It has 17 requests and 79 assertions, and passes on repeated runs. See [docs/POSTMAN_GUIDE.md](docs/POSTMAN_GUIDE.md), including **demo prep**.
+Import [`postman/FuelRouteOptimizer.postman_collection.json`](postman/) together with the `local` environment and run it top to bottom. It has 17 requests and 79 assertions, and it passes on repeated runs. See [docs/POSTMAN_GUIDE.md](docs/POSTMAN_GUIDE.md), including **demo prep**.
 
-## Tests
+## Running the tests
 
 ```bash
-pytest -q          # 300+ tests, no network: ORS is mocked with recorded real responses
+pytest -q        # 316 tests, ~15 s, no network (ORS mocked with recorded real responses)
 ruff check .
 ```
 
-The optimizer is verified against a brute-force dynamic program on 900 random instances, covering all three start-fuel modes, with and without the stop penalty.
+The optimizer is checked against an independent brute-force DP on 900 random instances, covering all three start-fuel modes, with and without the stop penalty.
+
+## Useful commands
+
+| Command | Purpose |
+|---|---|
+| `python manage.py load_stations` | Load `data/stations_geocoded.csv` into the database (idempotent) |
+| `python manage.py clear_cache [--only route\|response\|geocode] [--all]` | Make the next requests cold (works across running servers) |
+| `python manage.py geocode_stations [--ors-fallback]` | Rebuild the geocoded CSV from the raw price file |
+| `python manage.py build_places` | Rebuild the Census gazetteer files |
+| `python scripts/profile_csv.py` | Data-quality statistics for the raw CSV |
+
+## Assumptions and limitations
+
+- Prices are the static retail prices from the provided CSV. Duplicate station IDs are merged at their lowest price.
+- Station locations are **city-level** (the city's centroid), not the exact highway exit. Stations within 10 miles of the route are considered, and the detour to a station isn't added to fuel use.
+- Fuel use is linear in distance at the given mpg, and any amount can be bought at a stop.
+- The data has no stations in Alaska, Hawaii or DC, and none in Canada (Canadian rows are excluded). Routes that would need fuel there return 422 `route_unreachable` with the gap's location.
+- Coordinates within about 10 miles of the land border (e.g. Windsor, ON) can pass the offline US check ([ADR-006](docs/DESIGN_DECISIONS.md)).
 
 ## Documentation
 
-- [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md): ADRs (Django version, offline geocoding, ORS base URL, US checks, stop penalty, …)
-- [docs/POSTMAN_GUIDE.md](docs/POSTMAN_GUIDE.md): importing and running the collection; demo prep
-- [docs/benchmarks/](docs/benchmarks/): raw benchmark output
+| Document | Contents |
+|---|---|
+| [SETUP.md](docs/SETUP.md) | Detailed setup, environment variables, troubleshooting |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, request sequence, caching layers, module responsibilities |
+| [ALGORITHM.md](docs/ALGORITHM.md) | Greedy, stop-penalty DP, start-fuel modes, worked example, optimality testing |
+| [API.md](docs/API.md) | Endpoints, parameters, response fields, error codes |
+| [DATA_PIPELINE.md](docs/DATA_PIPELINE.md) | CSV issues, cleaning, offline geocoding, ORS fallback rules |
+| [DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) | ADRs and future work |
+| [POSTMAN_GUIDE.md](docs/POSTMAN_GUIDE.md) | Collection walkthrough and demo prep |
+
+### Map screenshot
+
+Add a screenshot at `docs/images/map.png`. Open a `map_url` (e.g. NYC → LA), zoom to fit, and save it with your OS screenshot tool (on Linux Mint: <kbd>Shift</kbd>+<kbd>PrtSc</kbd>, then select the browser area). Then add `![Route map](docs/images/map.png)` here.

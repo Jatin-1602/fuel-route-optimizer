@@ -85,7 +85,7 @@ Then in Postman, run the collection once (Runner: 17/17 requests, 79/79 assertio
 - **04:** copy `map_url` from 02 into a browser to show the map.
 - Finish with one error case (15, Toronto) and the green Runner summary.
 
-**If request 02 returns 504** (`routing_provider_timeout`), OpenRouteService was slow computing a long route for the first time. Send it again; it usually returns in about 2 s. This is a good moment to show the error envelope and `external_api_attempts`.
+**If request 02 is slow or returns 504** (`routing_provider_timeout`): OpenRouteService's first computation of a long route can take 10–20 s. Directions wait up to 30 s and are retried once, so a 504 means ORS stalled twice. Send the request again; it usually returns in about 2 s. This is a good moment to show the error envelope and `external_api_attempts`. See the demo script fallback in your private notes.
 
 ### Checklist
 
