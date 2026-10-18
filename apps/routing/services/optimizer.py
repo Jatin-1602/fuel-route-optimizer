@@ -34,11 +34,23 @@ Complexity: ``O(n * k)`` for ``n`` stations and ``k`` stations within one tank r
 (a simple forward scan; ``n`` is a few hundred, so this beats a monotonic-stack
 precomputation in clarity at no measurable cost). ``empty`` mode repeats it for each
 candidate first stop (usually a handful).
+
+Stop penalty (``stop_penalty > 0``): minimise ``fuel cost + penalty x number of stops``.
+The greedy is no longer optimal (it happily stops for 1 gallon to save 3 cents), so an
+exact DP is used instead (:func:`_penalized_stop_set`). It relies on the known structure
+of optimal plans: at every stop you either **fill up** or buy **just enough to arrive
+empty** at the next stop (or at the destination). Hence the fuel on arrival at a station
+is 0, ``C - d(j, l)`` for a previous station ``j`` that filled up, or the start fuel
+minus the distance driven — finitely many states. The DP returns the optimal *set* of
+stops; the greedy restricted to that set then computes the purchases (the greedy is
+optimal for any fixed set of stations, so the objective cannot get worse).
 """
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
+
+import numpy as np
 
 EPS = 1e-9
 
@@ -145,6 +157,12 @@ class FuelPlan:
     initial_fuel_gallons: float  # in the tank at the start (empty: burned to reach stop 1)
     initial_fuel_cost: float  # empty mode: charged at stop 1's price; otherwise 0
     fuel_at_finish_gallons: float
+    stop_penalty: float = 0.0  # USD per stop used when choosing the plan
+
+    @property
+    def objective(self) -> float:
+        """What the plan minimises: fuel cost + stop_penalty x number of stops."""
+        return self.total_cost + self.stop_penalty * len(self.stops)
 
     @property
     def total_cost(self) -> float:
@@ -264,16 +282,41 @@ def plan_fuel_stops(
     vehicle: Vehicle,
     start_fuel: "StartFuel | str | float" = "empty",
     origin_radius_miles: float = 25.0,
+    stop_penalty: float = 0.0,
 ) -> FuelPlan:
-    """Compute the minimum-cost refuelling plan for a route of ``total_miles``.
+    """Compute the refuelling plan minimising fuel cost + ``stop_penalty`` x stops.
 
-    Raises :class:`UnreachableRouteError` if no feasible plan exists and ``ValueError``
-    for invalid inputs (e.g. start fuel larger than the tank).
+    ``stop_penalty == 0`` runs the greedy (pure cost optimum); a positive penalty runs
+    the exact DP. Raises :class:`UnreachableRouteError` if no feasible plan exists and
+    ``ValueError`` for invalid inputs (e.g. start fuel larger than the tank).
     """
     if total_miles < 0 or vehicle.mpg <= 0 or vehicle.max_range_miles <= 0:
         raise ValueError("total_miles must be >= 0; range and mpg must be positive")
+    if not 0 <= stop_penalty < float("inf"):
+        raise ValueError("stop_penalty must be a non-negative finite number")
     start = StartFuel.parse(start_fuel)
+    start.initial_gallons(vehicle)  # validates start fuel against the tank
     stations = prepare_candidates(candidates, total_miles)
+
+    if stop_penalty > 0:
+        chosen = _penalized_stop_set(
+            stations, total_miles, vehicle, start, origin_radius_miles, stop_penalty
+        )
+        if chosen is not None:
+            stations = [stations[k] for k in chosen]
+        # chosen is None -> infeasible; the greedy below raises with the gap details.
+    plan = _plan_greedy(stations, total_miles, vehicle, start, origin_radius_miles)
+    return replace(plan, stop_penalty=stop_penalty)
+
+
+def _plan_greedy(
+    stations: list[FuelCandidate],
+    total_miles: float,
+    vehicle: Vehicle,
+    start: StartFuel,
+    origin_radius_miles: float,
+) -> FuelPlan:
+    """Pure cost optimum over ``stations`` (already prepared)."""
     consumed = total_miles / vehicle.mpg
 
     if start.mode is StartMode.EMPTY:
@@ -345,3 +388,139 @@ def _plan_from_empty(
         assert last_error is not None
         raise last_error
     return best
+
+
+# --- Stop-penalty DP ---------------------------------------------------------------------
+
+
+def _penalized_stop_set(
+    stations: list[FuelCandidate],
+    total_miles: float,
+    vehicle: Vehicle,
+    start: StartFuel,
+    origin_radius_miles: float,
+    penalty: float,
+) -> list[int] | None:
+    """Indices of the stops minimising fuel cost + ``penalty`` x stops (``None`` if infeasible).
+
+    Forward DP over stations in mile order. The states at station ``l`` (fuel on arrival
+    ``a``, cost so far ``c``) are:
+
+    * start states — start fuel minus distance driven (cost 0), or for ``empty`` mode an
+      empty tank at a station within the origin radius (cost: fuel to get there, charged
+      at its price);
+    * ``(C - d(j, l), F_j)`` for every earlier ``j`` within range that **filled up**, where
+      ``F_j = min_states_at_j(c - a p_j) + C p_j + penalty`` (one number per station);
+    * ``(0, E_l)`` — arrived empty because the previous stop bought just enough, where
+      ``E_l = min_j [min_{a <= d(j,l)} (c - a p_j) + d(j,l) p_j + penalty]``; the inner min
+      is a prefix minimum over ``j``'s states sorted by ``a``, vectorised over all ``l``.
+
+    Each station is processed with a handful of numpy operations: ``O(n k)`` overall.
+    """
+    n = len(stations)
+    if n == 0:
+        return [] if _finishes_without_stops(total_miles, vehicle, start) else None
+    cap, mpg, reach = vehicle.tank_gallons, vehicle.mpg, vehicle.max_range_miles
+    miles = np.fromiter((s.mile for s in stations), dtype=np.float64, count=n)
+    prices = np.fromiter((s.price for s in stations), dtype=np.float64, count=n)
+
+    # Start states.
+    if start.mode is StartMode.EMPTY:
+        init_ok = miles <= origin_radius_miles + EPS
+        init_a = np.zeros(n)
+        init_c = miles / mpg * prices
+    else:
+        f0 = start.initial_gallons(vehicle)
+        init_ok = miles <= f0 * mpg + EPS
+        init_a = f0 - miles / mpg
+        init_c = np.zeros(n)
+
+    fill_cost = np.full(n, np.inf)  # F_j
+    fill_from = np.full(n, -1, dtype=np.int64)  # local state index at j achieving F_j
+    empty_cost = np.full(n, np.inf)  # E_l
+    empty_last = np.full(n, -1, dtype=np.int64)  # station that bought just enough
+    empty_prev = np.full(n, -1, dtype=np.int64)  # its local state index
+    # Per station: (last stop, its local state index) for every state, for reconstruction.
+    back: list[tuple[np.ndarray, np.ndarray] | None] = [None] * n
+
+    no_stop = _finishes_without_stops(total_miles, vehicle, start)
+    best_cost, best_station, best_state = (0.0 if no_stop else np.inf), -1, -1
+
+    for cur in range(n):
+        lo = int(np.searchsorted(miles, miles[cur] - reach - EPS, side="left"))
+        fillers = np.arange(lo, cur)[np.isfinite(fill_cost[lo:cur])]
+        a = [cap - (miles[cur] - miles[fillers]) / mpg]
+        c = [fill_cost[fillers]]
+        last = [fillers]
+        prev = [fill_from[fillers]]
+        if np.isfinite(empty_cost[cur]):
+            a.append(np.zeros(1))
+            c.append(empty_cost[cur : cur + 1])
+            last.append(empty_last[cur : cur + 1])
+            prev.append(empty_prev[cur : cur + 1])
+        if init_ok[cur]:
+            a.append(init_a[cur : cur + 1])
+            c.append(init_c[cur : cur + 1])
+            last.append(np.full(1, -1, dtype=np.int64))
+            prev.append(np.full(1, -1, dtype=np.int64))
+        a_l, c_l = np.concatenate(a), np.concatenate(c)
+        if a_l.size == 0:
+            continue
+        back[cur] = (np.concatenate(last), np.concatenate(prev))
+        price = prices[cur]
+        key = c_l - a_l * price  # cost of the state if its fuel were bought here
+
+        # Finish: buy just enough to reach the destination.
+        need = (total_miles - miles[cur]) / mpg
+        if need <= cap + EPS:
+            short = np.flatnonzero(a_l < need - EPS)
+            if short.size:
+                totals = key[short] + need * price + penalty
+                i = int(np.argmin(totals))
+                if totals[i] < best_cost - EPS:
+                    best_cost, best_station, best_state = float(totals[i]), cur, int(short[i])
+
+        # Fill up here.
+        i = int(np.argmin(key))
+        fill_cost[cur] = key[i] + cap * price + penalty
+        fill_from[cur] = i
+
+        # Buy just enough to arrive empty at each station ahead within range.
+        hi = int(np.searchsorted(miles, miles[cur] + reach + EPS, side="right"))
+        if hi <= cur + 1:
+            continue
+        ahead = np.arange(cur + 1, hi)
+        dist = (miles[ahead] - miles[cur]) / mpg
+        order = np.argsort(a_l, kind="stable")
+        a_sorted, key_sorted = a_l[order], key[order]
+        prefix_min = np.minimum.accumulate(key_sorted)
+        prefix_arg = np.maximum.accumulate(
+            np.where(key_sorted <= prefix_min, np.arange(key_sorted.size), 0)
+        )
+        pos = np.searchsorted(a_sorted, dist + EPS, side="right") - 1
+        valid = pos >= 0
+        targets, pos = ahead[valid], pos[valid]
+        costs = prefix_min[pos] + dist[valid] * price + penalty
+        better = costs < empty_cost[targets] - EPS
+        targets, pos = targets[better], pos[better]
+        empty_cost[targets] = costs[better]
+        empty_last[targets] = cur
+        empty_prev[targets] = order[prefix_arg[pos]]
+
+    if not np.isfinite(best_cost):
+        return None
+    chosen: list[int] = []
+    station, state = best_station, best_state
+    while station != -1:
+        chosen.append(station)
+        backrefs = back[station]
+        assert backrefs is not None
+        station, state = int(backrefs[0][state]), int(backrefs[1][state])
+    return sorted(chosen)
+
+
+def _finishes_without_stops(total_miles: float, vehicle: Vehicle, start: StartFuel) -> bool:
+    return (
+        start.mode is not StartMode.EMPTY
+        and total_miles <= start.initial_gallons(vehicle) * vehicle.mpg + EPS
+    )

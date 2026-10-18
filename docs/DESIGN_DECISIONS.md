@@ -118,3 +118,26 @@ Rules 5 and 6 were added after auditing a first run that used only rules 1–4. 
 The reasons are listed in `data/unmatched_cities.csv`.
 
 **Trade-off.** The county rule is conservative. It probably also rejects three correct results: Pendleton KY (in Henry County, on I-71), Edwards IL and Lawrence MS. That costs 3 stations and avoids placing a stop about 100 miles away. Transient ORS errors (19 in the first batch) skip the pair, which is retried on the next run. A 429 stops the batch and keeps the progress made so far.
+
+---
+
+## ADR-008 — Stop penalty: optimize "cost effective", not just "cheapest"
+
+**Context.** The assignment asks for the "optimal location to fuel up along the route — **optimal mostly means cost effective** based on fuel prices". The pure cost optimum (the greedy, ADR in `docs/ALGORITHM.md`) is provably the cheapest, but on NYC → LA it makes **19 stops**, several of them 1–3 gallon top-ups that save a few cents because the next station is marginally cheaper. No driver would do that. "Mostly" leaves room to weigh the cost of stopping itself.
+
+**Decision.** A `stop_penalty` parameter (USD per stop, **default 15**, range 0–200) is added to the objective: minimise *fuel cost + stop_penalty × number of stops*. The penalty is a planning weight; it is **not** added to `total_fuel_cost`.
+
+- `stop_penalty = 0` runs the original greedy unchanged: fast and provably optimal for pure cost.
+- `stop_penalty > 0` runs an **exact DP**. It relies on the known structure of optimal plans: at every stop you either fill up or buy just enough to arrive empty at the next stop (or the destination). So fuel on arrival is one of finitely many values: 0, `C − d(j, l)` for an earlier station *j* that filled up, or the start fuel minus the distance driven. Each station is processed with a handful of vectorised numpy operations: the fill-up state collapses to one number per station, and the just-enough transitions use a prefix minimum over states sorted by fuel. That makes it O(n·k) over pre-merged stations within range. The DP returns the optimal *set* of stops, and the greedy restricted to that set computes the purchases, so the accounting code is shared.
+- The response exposes the trade-off: `summary.pure_cost_optimum` (cost and stop count at penalty 0) and `summary.extra_cost_vs_pure_optimum`.
+
+**Evidence** (real recorded routes, 500 mi range, 10 mpg, empty start):
+
+| Route | Pure optimum | Penalty $15 | Extra fuel cost | Largest leg | DP time |
+|---|---|---|---|---|---|
+| NYC → LA (2,811.6 mi) | 19 stops, $852.87 | **7 stops**, $860.57 | **+$7.69** | 482.5 mi | ~35 ms |
+| Chicago → Houston (1,081.8 mi) | 8 stops, $317.48 | **3 stops**, $319.53 | **+$2.05** | 475.5 mi | ~13 ms |
+
+**Verification.** The brute-force test minimises *fuel + penalty × stops* over 0.1-gallon fuel levels, with no structural shortcuts. It covers all three `start_fuel` modes (300 random instances each, penalties 0–40) and matches the optimizer's objective exactly. It also asserts that a penalty never increases the number of stops and never lowers fuel cost below the pure optimum.
+
+**Why $15.** Roughly the value of 10–15 minutes of a driver's time. At this default, NYC → LA pays $7.69 more to make 12 fewer stops, so each skipped stop costs about $0.64. Set `stop_penalty=0` for the strict cheapest plan.

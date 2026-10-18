@@ -196,3 +196,45 @@ def test_start_fuel_above_tank_is_invalid_input(stations, client, mocked) -> Non
 def test_no_stations_loaded(client) -> None:
     with pytest.raises(StationDataUnavailableError):
         plan(StationIndex.from_rows([]), client)
+
+
+# --- Stop penalty ------------------------------------------------------------------------
+
+
+def test_default_stop_penalty_trades_little_money_for_far_fewer_stops(
+    stations, client, mocked
+) -> None:
+    mocked.post(CAR_URL, json=load_fixture("directions_nyc_la.json"))
+
+    trip = plan(stations, client)
+
+    assert trip.params.stop_penalty == settings.DEFAULT_STOP_PENALTY == 15
+    assert len(trip.stops) < len(trip.pure_optimum.stops)
+    assert trip.pure_optimum.stop_penalty == 0
+    assert (
+        0 <= trip.extra_cost_vs_pure_optimum < 15 * (len(trip.pure_optimum.stops) - len(trip.stops))
+    )  # never pays more than the stops it saves
+    assert trip.max_leg_miles <= 500
+    assert trip.timings_ms["optimize"] < 250  # ~35 ms locally; generous for CI
+
+
+def test_zero_stop_penalty_is_the_pure_optimum(stations, client, mocked) -> None:
+    mocked.post(CAR_URL, json=load_fixture("directions_chicago_houston.json"))
+    trip = plan(stations, client, "Chicago, IL", "Houston, TX", stop_penalty=0)
+    assert trip.pure_optimum is trip.fuel_plan
+    assert trip.extra_cost_vs_pure_optimum == 0
+    assert "pure_optimum" not in trip.timings_ms
+
+
+@pytest.mark.parametrize("start_fuel", ["empty", "full", "12.5"])
+def test_stop_penalty_all_start_fuel_modes_on_real_route(
+    stations, client, mocked, start_fuel
+) -> None:
+    mocked.post(CAR_URL, json=load_fixture("directions_chicago_houston.json"))
+    trip = plan(
+        stations, client, "Chicago, IL", "Houston, TX", start_fuel=StartFuel.parse(start_fuel)
+    )
+    fp, pure = trip.fuel_plan, trip.pure_optimum
+    assert fp.objective <= pure.total_cost + 15 * len(pure.stops) + 1e-6
+    assert fp.total_cost >= pure.total_cost - 1e-6
+    assert trip.max_leg_miles <= 500

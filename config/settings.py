@@ -120,6 +120,11 @@ ORS_BATCH_GEOCODE_INTERVAL_SECONDS: float = env.float(
     "ORS_BATCH_GEOCODE_INTERVAL_SECONDS", default=0.7
 )
 
+# --- Trip planning defaults ---------------------------------------------------
+
+# USD added per fuel stop when choosing a plan (0 = pure cost optimum). See ADR-008.
+DEFAULT_STOP_PENALTY: float = env.float("DEFAULT_STOP_PENALTY", default=15.0)
+
 # --- Django REST Framework / OpenAPI ------------------------------------------
 
 REST_FRAMEWORK = {

@@ -187,11 +187,14 @@ def brute_force(
     vehicle: Vehicle,
     start: StartFuel,
     origin_radius: float,
+    penalty: float = 0.0,
 ) -> float:
     """Exact DP over fuel levels in 1-mile units (0.1 gal at 10 mpg); ``inf`` if infeasible.
 
-    Independent of the greedy: no merging, no rules; at every station it considers every
-    purchase amount via ``B[f] = min_{a<=f} A[a] + (f-a)*c`` (prefix-min, O(capacity)).
+    Minimises fuel cost + ``penalty`` x stops. Independent of the optimizer: no merging,
+    no rules, no structural shortcuts. At every station it considers skipping (no cost)
+    and every purchase amount (``+ penalty``):
+    ``B[f] = min(A[f], f*c + penalty + min_{a<f} (A[a] - a*c))`` (prefix-min, O(capacity)).
     """
     assert vehicle.mpg == 10 and float(vehicle.max_range_miles).is_integer()
     cap = int(vehicle.max_range_miles)  # capacity in units
@@ -204,11 +207,15 @@ def brute_force(
             out[: cap + 1 - distance] = levels[distance:]
         return out
 
+    def buy(levels: np.ndarray, price: float) -> np.ndarray:
+        per_unit = price / 10
+        prefix = np.minimum.accumulate(levels - units * per_unit)
+        strict = np.concatenate(([np.inf], prefix[:-1]))  # a < f: a real purchase
+        return np.minimum(levels, units * per_unit + penalty + strict)
+
     def run(levels: np.ndarray, position: float, rest: list[FuelCandidate]) -> float:
         for s in rest:
-            levels = drive(levels, int(s.mile - position))
-            per_unit = s.price / 10
-            levels = units * per_unit + np.minimum.accumulate(levels - units * per_unit)
+            levels = buy(drive(levels, int(s.mile - position)), s.price)
             position = s.mile
         last = int(total_miles - position)
         return float(levels[last:].min()) if last <= cap else math.inf
@@ -220,9 +227,7 @@ def brute_force(
                 continue
             levels = np.full(cap + 1, np.inf)
             levels[0] = first.mile * first.price / 10  # fuel burned to reach stop 1
-            per_unit = first.price / 10
-            levels = units * per_unit + np.minimum.accumulate(levels - units * per_unit)
-            best = min(best, run(levels, first.mile, ordered[k + 1 :]))
+            best = min(best, run(buy(levels, first.price), first.mile, ordered[k + 1 :]))
         return best
 
     levels = np.full(cap + 1, np.inf)
@@ -233,7 +238,7 @@ def brute_force(
 def random_instance(rng: random.Random, mode: StartMode):
     vehicle = Vehicle(max_range_miles=rng.choice([40, 60, 80, 100, 120]), mpg=10)
     total = rng.randint(10, 400)
-    n = rng.randint(0, 9)
+    n = rng.randint(0, 12)
     prices = [2.50, 2.75, 3.00, 3.25, 3.50, 3.75, 4.00]
     stations = [FuelCandidate(k, rng.randint(0, total - 1), rng.choice(prices)) for k in range(n)]
     radius = rng.choice([0, 10, 25, 40])
@@ -250,25 +255,33 @@ def random_instance(rng: random.Random, mode: StartMode):
     return stations, total, vehicle, start, radius
 
 
+PENALTIES = [0.0, 0.5, 2.0, 5.0, 15.0, 40.0]
+
+
 @pytest.mark.parametrize("mode", list(StartMode))
-def test_greedy_matches_brute_force_on_random_instances(mode: StartMode) -> None:
+def test_optimizer_matches_brute_force_on_random_instances(mode: StartMode) -> None:
+    """Greedy (penalty 0) and DP (penalty > 0) both equal the brute force, all start modes."""
     rng = random.Random(f"fuel-{mode.value}")
-    feasible = infeasible = 0
-    for _ in range(200):
+    feasible = infeasible = penalized = 0
+    for _ in range(300):
         stations, total, vehicle, start, radius = random_instance(rng, mode)
-        expected = brute_force(stations, total, vehicle, start, radius)
+        penalty = rng.choice(PENALTIES)
+        expected = brute_force(stations, total, vehicle, start, radius, penalty)
         if math.isinf(expected):
             infeasible += 1
             with pytest.raises(UnreachableRouteError):
-                plan_fuel_stops(stations, total, vehicle, start, radius)
+                plan_fuel_stops(stations, total, vehicle, start, radius, penalty)
             continue
         feasible += 1
-        plan = plan_fuel_stops(stations, total, vehicle, start, radius)
-        assert plan.total_cost == pytest.approx(expected, abs=1e-6), (
+        penalized += penalty > 0
+        plan = plan_fuel_stops(stations, total, vehicle, start, radius, penalty)
+        assert plan.objective == pytest.approx(expected, abs=1e-6), (
             stations,
             total,
             vehicle,
             start,
+            radius,
+            penalty,
         )
         # Accounting invariants
         consumed = total / vehicle.mpg
@@ -280,5 +293,37 @@ def test_greedy_matches_brute_force_on_random_instances(mode: StartMode) -> None
                 consumed + plan.fuel_at_finish_gallons
             )
         assert all(s.departure_gallons <= vehicle.tank_gallons + 1e-9 for s in plan.stops)
-    # The generator must exercise both outcomes, or the test proves little.
-    assert feasible >= 60 and infeasible >= 20, (feasible, infeasible)
+        assert all(s.purchased_gallons > 0 for s in plan.stops)
+        # A penalty can only trade fuel cost for fewer stops, never the reverse.
+        pure = plan_fuel_stops(stations, total, vehicle, start, radius)
+        assert plan.total_cost >= pure.total_cost - 1e-6
+        assert len(plan.stops) <= len(pure.stops)
+    # The generator must exercise both outcomes and the penalty, or the test proves little.
+    assert feasible >= 90 and infeasible >= 30 and penalized >= 60, (
+        feasible,
+        infeasible,
+        penalized,
+    )
+
+
+def test_stop_penalty_collapses_micro_stops() -> None:
+    # Cheap top-ups 10 miles apart: pure optimum stops for every cent; a $5 penalty does not.
+    stations = cands((0, 3.00), (10, 2.99), (20, 2.98), (30, 2.97), (95, 3.50))
+    pure = plan_fuel_stops(stations, 150, SMALL, "empty", origin_radius_miles=5)
+    penalized = plan_fuel_stops(stations, 150, SMALL, "empty", 5, stop_penalty=5)
+    assert len(pure.stops) == 5
+    assert len(penalized.stops) < len(pure.stops)
+    assert penalized.objective < pure.total_cost + 5 * len(pure.stops)
+    assert penalized.stop_penalty == 5 and pure.stop_penalty == 0
+
+
+def test_stop_penalty_zero_is_the_greedy() -> None:
+    assert plan_fuel_stops(WORKED, 250, SMALL, "empty", 25, 0) == plan_fuel_stops(
+        WORKED, 250, SMALL, "empty", 25
+    )
+
+
+@pytest.mark.parametrize("penalty", [-1, float("inf"), float("nan")])
+def test_invalid_stop_penalty(penalty: float) -> None:
+    with pytest.raises(ValueError, match="stop_penalty"):
+        plan_fuel_stops(WORKED, 250, SMALL, "empty", stop_penalty=penalty)

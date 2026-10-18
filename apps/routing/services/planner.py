@@ -67,6 +67,7 @@ class PlanParams:
     corridor_miles: float = 10.0
     origin_radius_miles: float = 25.0
     profile: str = "driving-car"
+    stop_penalty: float = field(default_factory=lambda: settings.DEFAULT_STOP_PENALTY)
 
     @property
     def vehicle(self) -> Vehicle:
@@ -99,6 +100,7 @@ class TripPlan:
     finish: ResolvedLocation
     route: Route
     fuel_plan: FuelPlan
+    pure_optimum: FuelPlan  # same trip with stop_penalty = 0 (cheapest fuel, any stops)
     stops: tuple[PlannedStop, ...]
     stations_considered: int
     corridor_average_price: float
@@ -123,6 +125,11 @@ class TripPlan:
     @property
     def estimated_savings(self) -> float:
         return self.baseline_cost - self.fuel_plan.total_cost
+
+    @property
+    def extra_cost_vs_pure_optimum(self) -> float:
+        """Fuel money traded for fewer stops (0 when stop_penalty is 0)."""
+        return self.fuel_plan.total_cost - self.pure_optimum.total_cost
 
 
 class _Timer:
@@ -198,7 +205,12 @@ def plan_trip(
             corridor = find_candidates(dense, stations, params.corridor_miles)
 
         with timer.section("optimize"):
-            fuel_plan = _optimize(params, corridor, geometry, geography)
+            fuel_plan = _optimize(params, corridor, geometry, geography, params.stop_penalty)
+        if params.stop_penalty > 0:
+            with timer.section("pure_optimum"):
+                pure_optimum = _optimize(params, corridor, geometry, geography, 0.0)
+        else:
+            pure_optimum = fuel_plan
 
     stops = tuple(_planned_stop(n, s, stations) for n, s in enumerate(fuel_plan.stops, start=1))
     legs = np.diff([0.0, *(s.mile_marker for s in stops), geometry.total_miles])
@@ -208,6 +220,7 @@ def plan_trip(
         finish=finish,
         route=route,
         fuel_plan=fuel_plan,
+        pure_optimum=pure_optimum,
         stops=stops,
         stations_considered=len(corridor),
         corridor_average_price=float(corridor.price.mean()) if len(corridor) else 0.0,
@@ -219,7 +232,11 @@ def plan_trip(
 
 
 def _optimize(
-    params: PlanParams, corridor: Corridor, geometry: RouteGeometry, geography: USGeography
+    params: PlanParams,
+    corridor: Corridor,
+    geometry: RouteGeometry,
+    geography: USGeography,
+    stop_penalty: float,
 ) -> FuelPlan:
     candidates = [
         FuelCandidate(key=int(i), mile=float(m), price=float(p), off_route_miles=float(o))
@@ -238,6 +255,7 @@ def _optimize(
             params.vehicle,
             params.start_fuel,
             params.origin_radius_miles,
+            stop_penalty,
         )
     except ValueError as exc:  # e.g. start_fuel larger than the tank
         raise InvalidInputError(str(exc)) from exc
