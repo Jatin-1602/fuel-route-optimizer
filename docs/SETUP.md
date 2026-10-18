@@ -132,7 +132,7 @@ See [DATA_PIPELINE.md](DATA_PIPELINE.md).
 |---|---|
 | Dev server | `python manage.py runserver` |
 | Production-style server | `WARM_ON_STARTUP=1 gunicorn config.wsgi --preload --workers 2 --threads 4 -b 127.0.0.1:8000` |
-| Tests | `pytest -q` (321 tests, no network) |
+| Tests | `pytest -q` (399 tests, no network) |
 | Tests with coverage | `pytest --cov=apps --cov-report=term-missing` |
 | Lint / format | `ruff check .` / `ruff format .` |
 | Clear caches | `python manage.py clear_cache` (`--only route\|response\|geocode`, `--all` also resets throttle counters) |
