@@ -5,7 +5,7 @@
 > - **Run:** `pip install -r requirements-dev.txt`, `cp .env.example .env` (add a free ORS key), `python manage.py migrate && python manage.py load_stations && python manage.py runserver`, then open `/api/docs/`.
 > - **NYC → LA (recorded route):** 7 stops, $860.57, which is $7.69 more than the 19-stop pure-cost optimum and $120.59 less than paying the corridor-average price.
 > - **API calls and speed:** 1 routing call per new trip, 0 when cached; cached responses take 7–36 ms on gunicorn; 6,604 of 6,626 stations (99.67%) are geocoded offline or from a committed cache.
-> - **Quality:** 316 tests, with the optimizer verified against a brute-force solver on 900 random instances; 17-request Postman collection; 19 ADRs.
+> - **Quality:** 321 tests, with the optimizer verified against a brute-force solver on 900 random instances; 17-request Postman collection; 19 ADRs.
 
 A Django REST API that plans a driving route between two US locations and chooses **cost-effective fuel stops** along it. It uses the provided truck-stop price list, a vehicle with a 500-mile range at 10 mpg, and returns the route as GeoJSON plus an interactive map. A typical request makes **one** routing API call (OpenRouteService), and a repeated request makes **none**.
 
@@ -120,7 +120,7 @@ Import [`postman/FuelRouteOptimizer.postman_collection.json`](postman/) together
 ## Running the tests
 
 ```bash
-pytest -q        # 316 tests, ~15 s, no network (ORS mocked with recorded real responses)
+pytest -q        # 321 tests, ~20 s, no network (ORS mocked with recorded real responses)
 ruff check .
 ```
 
