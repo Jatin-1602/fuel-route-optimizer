@@ -1,8 +1,10 @@
 """OpenRouteService (HeiGIT) HTTP client: directions + Pelias geocoding.
 
 * One shared ``requests.Session`` (connection pooling / keep-alive).
-* Connect/read timeouts (5 s / 10 s); retries for connection errors and 502/503/504
-  (up to 2) and exactly one retry on a read timeout (worst case ~2 x 10 s).
+* Connect timeout 5 s; read timeout 30 s for directions (ORS's first computation of a
+  long route can take 10-20 s) and 10 s for geocoding. Retries: up to 2 for connection
+  errors and 502/503/504, and exactly one on a read timeout (both requests are
+  idempotent).
 * Calls (API operations) and HTTP attempts (incl. retries) are counted in the active
   :func:`count_external_calls` scope; the API reports them as ``meta.external_api_calls``
   and ``meta.external_api_attempts``.
@@ -153,6 +155,7 @@ class ORSClient:
         base_url: str,
         connect_timeout: float = 5.0,
         read_timeout: float = 10.0,
+        directions_read_timeout: float = 30.0,
         max_retries: int = 2,
         read_timeout_retries: int = 1,
         backoff_seconds: float = 0.25,
@@ -160,7 +163,9 @@ class ORSClient:
     ) -> None:
         self._api_key = api_key
         self.base_url = base_url.rstrip("/")
-        self.timeout = (connect_timeout, read_timeout)
+        self.connect_timeout = connect_timeout
+        self.read_timeout = read_timeout  # geocoding
+        self.directions_read_timeout = directions_read_timeout
         self.max_retries = max_retries
         self.read_timeout_retries = read_timeout_retries
         self.backoff_seconds = backoff_seconds
@@ -193,7 +198,12 @@ class ORSClient:
             "instructions": False,
             "radiuses": [SNAP_RADIUS_METERS] * len(points),
         }
-        data = self._request("POST", DIRECTIONS_PATH.format(profile=profile), json=body)
+        data = self._request(
+            "POST",
+            DIRECTIONS_PATH.format(profile=profile),
+            read_timeout=self.directions_read_timeout,
+            json=body,
+        )
         try:
             feature = data["features"][0]
             summary = feature["properties"]["summary"]
@@ -227,7 +237,9 @@ class ORSClient:
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise RoutingProviderError("Unexpected geocoding response format.") from exc
 
-    def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    def _request(
+        self, method: str, path: str, read_timeout: float | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
         if not self._api_key:
             raise RoutingNotConfiguredError()
         url = f"{self.base_url}{path}"
@@ -245,7 +257,11 @@ class ORSClient:
             started = time.perf_counter()
             try:
                 response = self._session.request(
-                    method, url, headers=headers, timeout=self.timeout, **kwargs
+                    method,
+                    url,
+                    headers=headers,
+                    timeout=(self.connect_timeout, read_timeout or self.read_timeout),
+                    **kwargs,
                 )
             except requests.ReadTimeout as exc:
                 logger.warning(
@@ -332,7 +348,8 @@ def get_ors_client() -> ORSClient:
         api_key=settings.ORS_API_KEY,
         base_url=settings.ORS_BASE_URL,
         connect_timeout=settings.ORS_CONNECT_TIMEOUT_SECONDS,
-        read_timeout=settings.ORS_READ_TIMEOUT_SECONDS,
+        read_timeout=settings.ORS_GEOCODE_READ_TIMEOUT_SECONDS,
+        directions_read_timeout=settings.ORS_DIRECTIONS_READ_TIMEOUT_SECONDS,
         max_retries=settings.ORS_MAX_RETRIES,
         read_timeout_retries=settings.ORS_READ_TIMEOUT_RETRIES,
     )

@@ -72,6 +72,8 @@ Short ADR-style entries: context → decision → consequences. (Expanded in the
 
 The key ("Basic Key" from account.heigit.org) is sent in the `Authorization` header. This was verified on 2026-10-18 with one real call to each endpoint: all returned HTTP 200, and without a key they return 401 `"Authorization field missing"`.
 
+**Timeouts and retries:** see ADR-009.
+
 **Quotas.** These come from the response headers for this key: directions 2,000/day (`X-Ratelimit-Limit`) and geocoding 3,000/day. The public [restrictions page](https://openrouteservice.org/restrictions/) lists directions at 2,000/day and 40/min, geocoding at 1,000/day and 100/min, and a **6,000 km maximum route distance**. Coast to coast is about 4,500 km, so it fits.
 
 ---
@@ -141,3 +143,28 @@ The reasons are listed in `data/unmatched_cities.csv`.
 **Verification.** The brute-force test minimises *fuel + penalty × stops* over 0.1-gallon fuel levels, with no structural shortcuts. It covers all three `start_fuel` modes (300 random instances each, penalties 0–40) and matches the optimizer's objective exactly. It also asserts that a penalty never increases the number of stops and never lowers fuel cost below the pure optimum.
 
 **Why $15.** Roughly the value of 10–15 minutes of a driver's time. At this default, NYC → LA pays $7.69 more to make 12 fewer stops, so each skipped stop costs about $0.64. Set `stop_penalty=0` for the strict cheapest plan.
+
+---
+
+## ADR-009 — Timeouts and retries for OpenRouteService
+
+**Context.** Testing on 2026-10-18 against the live API:
+- A cached long route returns in about 1–2 s (NYC → LA: 1.5–2.1 s).
+- ORS's **first computation** of a long route regularly took **more than 10 s**:
+  - In the manual run, one NYC → LA request hung past a 20 s timeout.
+  - In the runserver benchmark, NYC → LA cold failed 3 of 3 times with a 10 s timeout plus one retry.
+  - In the gunicorn benchmark, NYC → LA and Chicago → Houston cold each failed 2 of 3.
+- The identical request seconds later returned in about 1–2 s, which is consistent with ORS caching the route once it finishes computing it.
+- Separately, the HeiGIT gateway briefly returned bursts of HTTP 502.
+
+**Decision.**
+- Connect timeout **5 s** for everything.
+- Read timeout **30 s for directions** and **10 s for geocoding** (geocoding was always fast). Settings: `ORS_DIRECTIONS_READ_TIMEOUT_SECONDS`, `ORS_GEOCODE_READ_TIMEOUT_SECONDS`.
+- **Exactly one retry on a read timeout** (`ORS_READ_TIMEOUT_RETRIES=1`), for both directions and geocoding. Both are idempotent reads, so repeating them is safe.
+- A separate budget of **up to 2 retries** for connection errors and 502/503/504 (`ORS_MAX_RETRIES`), with a short linear backoff. 429 and 4xx are never retried.
+- `meta.external_api_calls` counts API operations (what "one call" refers to). `meta.external_api_attempts` also counts retries, so they stay visible without making a retried request look like two trips.
+
+**Consequences.**
+- The worst case for a stalled directions call is about 2 × 30 s before the 504 `routing_provider_timeout`.
+- In practice, a reviewer's first long route takes **10–20 s** while ORS computes it, and every repeat is served from our caches in milliseconds (0 calls).
+- The Postman demo prep pre-fetches NYC → LA and then runs `clear_cache`, so the live call shown on camera is fast but still real.

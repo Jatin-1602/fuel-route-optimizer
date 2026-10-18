@@ -207,8 +207,36 @@ def test_read_timeout_budget_is_separate_from_5xx_budget(mocked, client) -> None
 
 def test_default_timeouts_from_settings(ors_key) -> None:
     client = get_ors_client()
-    assert client.timeout == (5.0, 10.0)
+    assert client.connect_timeout == 5.0
+    assert client.directions_read_timeout == 30.0
+    assert client.read_timeout == 10.0  # geocoding
     assert client.read_timeout_retries == 1
+
+
+class RecordingSession(requests.Session):
+    """Captures the timeout passed to each request (no network)."""
+
+    def __init__(self, payload: dict) -> None:
+        super().__init__()
+        self.payload = payload
+        self.timeouts: list[tuple[float, float]] = []
+
+    def request(self, method, url, **kwargs):  # type: ignore[override]
+        self.timeouts.append(kwargs["timeout"])
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(self.payload).encode()
+        return response
+
+
+def test_directions_and_geocode_use_their_own_read_timeouts(ors_key) -> None:
+    directions_session = RecordingSession(load_fixture("directions_dallas_denver.json"))
+    ORSClient(ors_key, ORS_TEST_BASE_URL, session=directions_session).directions([DALLAS, DENVER])
+    geocode_session = RecordingSession(load_fixture("geocode_search_white_house.json"))
+    ORSClient(ors_key, ORS_TEST_BASE_URL, session=geocode_session).geocode("White House")
+
+    assert directions_session.timeouts == [(5.0, 30.0)]
+    assert geocode_session.timeouts == [(5.0, 10.0)]
 
 
 def test_connect_timeout_maps_to_unavailable(mocked, client) -> None:
