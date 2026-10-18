@@ -32,7 +32,7 @@ Python 3.12 · **Django 6.1.2** · Django REST Framework 3.18.3 · drf-spectacul
 ## Quickstart
 
 ```bash
-git clone <repo-url> fuel-route-optimizer && cd fuel-route-optimizer
+git clone https://github.com/Jatin-1602/fuel-route-optimizer.git && cd fuel-route-optimizer
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 cp .env.example .env            # then set ORS_API_KEY=… (free "Basic Key": https://account.heigit.org/manage/key)
@@ -54,7 +54,9 @@ Response (trimmed; values from the recorded Chicago → Houston route):
 {
   "start":  {"query": "Chicago, IL", "name": "Chicago, IL", "lat": 41.83705, "lon": -87.68494, "resolved_by": "offline"},
   "summary": {
-    "total_distance_miles": 1081.8, "number_of_stops": 3, "total_fuel_cost": 319.53,
+    "total_distance_miles": 1081.8, "number_of_stops": 3,
+    "fuel_consumed_gallons": 108.18, "initial_fuel_gallons": 1.8, "gallons_purchased": 106.38,
+    "initial_fuel_cost": 5.54, "total_fuel_cost": 319.53,
     "pure_cost_optimum": {"total_fuel_cost": 317.48, "number_of_stops": 8},
     "extra_cost_vs_pure_optimum": 2.05, "baseline_cost_at_avg_corridor_price": 357.27,
     "estimated_savings": 37.74, "largest_leg_miles": 475.5, "stop_penalty": 15.0
@@ -73,7 +75,11 @@ Response (trimmed; values from the recorded Chicago → Houston route):
 }
 ```
 
-The first stop's cost also covers the fuel burned to reach it, so `total_fuel_cost` is the cost of every gallon used on the trip. The other `start_fuel` modes are `full` and a number of gallons; see [API.md](docs/API.md).
+**How it adds up.**
+- **Gallons:** 29.85 + 47.55 + 28.98 bought at the stops, plus 1.80 initial, equals **108.18**, which is 1,081.8 mi ÷ 10 mpg.
+- **Money:** with the default `start_fuel=empty`, the 1.80 gal burned to reach stop 1 is charged at stop 1's price as `initial_fuel_cost`. So `total_fuel_cost` = stop costs + `initial_fuel_cost` = the cost of every gallon used on the trip. The other `start_fuel` modes are `full` and a number of gallons; see [API.md](docs/API.md).
+
+> Note: every figure is rounded independently from unrounded values. Adding up rounded parts can therefore be a cent off: here 91.91 + 139.27 + 82.80 + 5.54 = 319.52, while the unrounded total of 319.5258 rounds to **319.53**. Deltas such as "+$7.69" (`extra_cost_vs_pure_optimum`) and savings are likewise computed from unrounded values, not from the rounded numbers shown.
 
 ## How many routing API calls?
 
@@ -156,6 +162,8 @@ The optimizer is checked against an independent brute-force DP on 900 random ins
 | [DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) | ADRs (incl. the security review, ADR-020) and future work |
 | [POSTMAN_GUIDE.md](docs/POSTMAN_GUIDE.md) | Collection walkthrough and demo prep |
 
-### Map screenshot
+### Map page
 
-Add a screenshot at `docs/images/map.png`. Open a `map_url` (e.g. NYC → LA), zoom to fit, and save it with your OS screenshot tool (on Linux Mint: <kbd>Shift</kbd>+<kbd>PrtSc</kbd>, then select the browser area). Then add `![Route map](docs/images/map.png)` here.
+![NYC to LA route map: numbered fuel stops on the route line, with the summary panel and stop table](docs/images/map.png)
+
+*`/api/v1/route/map/` for New York, NY → Los Angeles, CA (live run, 2026-10-18). Live ORS geometry can differ from the recorded test route by a cent or so, e.g. $860.55 here vs $860.57 above.*
