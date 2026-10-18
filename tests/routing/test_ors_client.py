@@ -307,3 +307,21 @@ def test_get_ors_client_reads_settings(ors_key) -> None:
     assert client.configured
     assert client.base_url == ORS_TEST_BASE_URL
     assert get_ors_client() is client  # process-wide singleton
+
+
+@pytest.mark.parametrize(
+    ("coordinates", "distance"),
+    [
+        ([[-96.8, 32.8]], 1000.0),  # one point
+        ([[-96.8, 32.8], [-96.8, 32.8], [-96.8, 32.8]], 1000.0),  # all identical
+        ([[-96.8, 32.8], [-104.9, 39.8]], 0.0),  # zero length
+        ([[-96.8, 32.8], [-104.9, 39.8]], float("nan")),  # not a number
+    ],
+)
+def test_directions_rejects_unusable_geometry(mocked, client, coordinates, distance) -> None:
+    data = load_fixture("directions_dallas_denver.json")
+    data["features"][0]["geometry"]["coordinates"] = coordinates
+    data["features"][0]["properties"]["summary"]["distance"] = distance
+    mocked.post(DIRECTIONS_URL, body=json.dumps(data), content_type="application/json")
+    with pytest.raises(RoutingProviderError, match="unusable route"):
+        client.directions([DALLAS, DENVER])

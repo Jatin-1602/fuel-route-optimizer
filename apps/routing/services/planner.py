@@ -21,7 +21,6 @@ from django.core.cache import cache
 from apps.routing.exceptions import (
     InvalidInputError,
     RouteUnreachableError,
-    RoutingProviderError,
     SameLocationError,
     StationDataUnavailableError,
 )
@@ -202,12 +201,8 @@ def plan_trip(
             route, cache_hit = get_route(start, finish, params.profile, client)
 
         with timer.section("geometry"):
-            try:
-                geometry = build_geometry(route.coordinates, route.distance_m / METERS_PER_MILE)
-            except ValueError as exc:  # e.g. a degenerate one-point route from the provider
-                raise RoutingProviderError(
-                    "The routing provider returned an unusable route."
-                ) from exc
+            # Routes are validated in ORSClient.directions before they can be cached.
+            geometry = build_geometry(route.coordinates, route.distance_m / METERS_PER_MILE)
             dense = resample(geometry)
 
         with timer.section("corridor"):

@@ -1,5 +1,6 @@
 """Database loading of geocoded stations (idempotent upsert) and the management commands."""
 
+import os
 from dataclasses import replace
 from decimal import Decimal
 from io import StringIO
@@ -98,3 +99,59 @@ def test_geocode_stations_command_reports_bad_csv_cleanly(tmp_path: Path) -> Non
     bad.write_text("OPIS Truckstop ID,City\n1,Dallas\n", encoding="utf-8")
     with pytest.raises(CommandError, match="missing columns"):
         call_command("geocode_stations", "--input", str(bad), "--output", str(tmp_path / "o.csv"))
+
+
+# --- geocode_stations: every file problem is a clean CommandError ------------------------
+
+
+def _geocode(tmp_path: Path, *extra: str) -> None:
+    call_command(
+        "geocode_stations",
+        "--output", str(tmp_path / "out.csv"),
+        "--unmatched", str(tmp_path / "unmatched.csv"),
+        *extra,
+        stdout=StringIO(),
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("option", "content", "message"),
+    [
+        ("--places", "state,normalized_name\nTX,dallas\n", "Cannot read the places gazetteer"),
+        ("--counties", None, "Cannot read the counties file"),
+        ("--ors-cache", "[]", "Cannot read the ORS fallback cache"),
+        ("--ors-cache", "{not json", "Cannot read the ORS fallback cache"),
+        ("--ors-cache", '{"version": 2, "entries": []}', "Cannot read the ORS fallback cache"),
+        ("--input", None, "Cannot read the fuel price CSV"),
+    ],
+)
+def test_geocode_stations_file_problems_are_command_errors(tmp_path, option, content, message):
+    path = tmp_path / "input-file"  # content None -> the file does not exist
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+    with pytest.raises(CommandError, match=message):
+        _geocode(tmp_path, option, str(path))
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
+def test_geocode_stations_unreadable_cache_is_command_error(tmp_path) -> None:
+    cache = tmp_path / "cache.json"
+    cache.write_text('{"version": 2, "entries": {}}', encoding="utf-8")
+    cache.chmod(0)
+    try:
+        with pytest.raises(CommandError, match="PermissionError"):
+            _geocode(tmp_path, "--ors-cache", str(cache))
+    finally:
+        cache.chmod(0o600)
+
+
+def test_geocode_stations_unwritable_output_is_command_error(tmp_path) -> None:
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("", encoding="utf-8")
+    with pytest.raises(CommandError, match="Cannot write"):
+        call_command(
+            "geocode_stations",
+            "--output", str(blocker / "out.csv"),  # parent is a file, not a directory
+            "--unmatched", str(tmp_path / "u.csv"),
+            stdout=StringIO(),
+        )  # fmt: skip

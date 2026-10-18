@@ -1,6 +1,9 @@
 """``manage.py geocode_stations`` — clean the raw CSV and attach coordinates."""
 
+import csv
 from argparse import ArgumentParser
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +31,27 @@ from apps.stations.services.station_geocoder import (
     write_geocoded_csv,
     write_unmatched_csv,
 )
+
+# Errors a malformed or unreadable data file can raise (JSONDecodeError and
+# UnicodeDecodeError are ValueErrors; a missing CSV column is a KeyError).
+_FILE_ERRORS = (OSError, ValueError, KeyError, TypeError, AttributeError, csv.Error)
+
+
+@contextmanager
+def _reading(label: str, path: Path) -> Iterator[None]:
+    """Turn any problem reading ``path`` into a one-line CommandError (no traceback)."""
+    try:
+        yield
+    except _FILE_ERRORS as exc:
+        raise CommandError(f"Cannot read {label} ({path}): {type(exc).__name__}: {exc}") from exc
+
+
+@contextmanager
+def _writing(path: Path) -> Iterator[None]:
+    try:
+        yield
+    except OSError as exc:
+        raise CommandError(f"Cannot write {path}: {exc}") from exc
 
 
 class Command(BaseCommand):
@@ -68,30 +92,30 @@ class Command(BaseCommand):
         if options["ors_fallback"] and options["no_ors_cache"]:
             raise CommandError("--ors-fallback and --no-ors-cache are mutually exclusive.")
 
-        try:
+        with _reading("the fuel price CSV", options["input"]):
             stations, cleaning = clean_fuel_csv(options["input"])
-        except (OSError, ValueError) as exc:  # missing file, missing columns
-            raise CommandError(f"Cannot read the fuel price CSV: {exc}") from exc
-        places = read_places_csv(options["places"])
+        with _reading("the places gazetteer", options["places"]):
+            places = read_places_csv(options["places"])
         index = PlaceIndex(places)
 
         decisions: dict[tuple[str, str], FallbackDecision] = {}
         calls = 0
         if not options["no_ors_cache"]:
-            try:
+            with _reading("the ORS fallback cache", options["ors_cache"]):
                 cache = FallbackCache(options["ors_cache"])
-            except ValueError as exc:  # unsupported cache version / corrupt file
-                raise CommandError(str(exc)) from exc
             pairs = find_unmatched_pairs(stations, index)
             if options["ors_fallback"]:
                 calls = self._fetch(pairs, cache)
             bounds = compute_state_bounds(places)
-            counties = read_county_keys(options["counties"])
+            with _reading("the counties file", options["counties"]):
+                counties = read_county_keys(options["counties"])
             decisions = {(d.city, d.state): d for d in decide_all(pairs, cache, bounds, counties)}
 
         geocoded, report = geocode_stations(stations, index, decisions)
-        write_geocoded_csv(geocoded, options["output"])
-        write_unmatched_csv(report.unmatched_cities, options["unmatched"])
+        with _writing(options["output"]):
+            write_geocoded_csv(geocoded, options["output"])
+        with _writing(options["unmatched"]):
+            write_unmatched_csv(report.unmatched_cities, options["unmatched"])
 
         out = self.stdout.write
         out("Cleaning")

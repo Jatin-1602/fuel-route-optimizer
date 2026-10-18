@@ -241,9 +241,28 @@ def test_stop_penalty_all_start_fuel_modes_on_real_route(
     assert trip.max_leg_miles <= 500
 
 
-def test_degenerate_route_from_provider_is_a_502_style_error(stations, client, mocked) -> None:
-    one_point = load_fixture("directions_chicago_houston.json")
-    one_point["features"][0]["geometry"]["coordinates"] = [[-87.68, 41.84]]
-    mocked.post(CAR_URL, json=one_point)
+def _bad_route(kind: str) -> dict:
+    data = load_fixture("directions_chicago_houston.json")
+    feature = data["features"][0]
+    if kind == "one_point":
+        feature["geometry"]["coordinates"] = [[-87.68, 41.84]]
+    elif kind == "identical_points":
+        feature["geometry"]["coordinates"] = [[-87.68, 41.84]] * 50
+    else:  # zero distance
+        feature["properties"]["summary"]["distance"] = 0.0
+    return data
+
+
+@pytest.mark.parametrize("kind", ["one_point", "identical_points", "zero_distance"])
+def test_unusable_route_is_rejected_and_never_cached(stations, client, mocked, kind) -> None:
+    mocked.post(CAR_URL, json=_bad_route(kind))
+    mocked.post(CAR_URL, json=load_fixture("directions_chicago_houston.json"))
+
     with pytest.raises(RoutingProviderError, match="unusable route"):
         plan(stations, client, "Chicago, IL", "Houston, TX")
+    retry = plan(stations, client, "Chicago, IL", "Houston, TX")
+
+    assert retry.route_cache_hit is False  # the bad route was not cached …
+    assert retry.external_api_calls == 1  # … so the retry asked ORS again
+    assert len(mocked.calls) == 2
+    assert len(retry.stops) > 0

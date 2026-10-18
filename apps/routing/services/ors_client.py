@@ -13,6 +13,7 @@
 """
 
 import logging
+import math
 import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -207,13 +208,15 @@ class ORSClient:
             feature = data["features"][0]
             summary = feature["properties"]["summary"]
             coordinates = [(float(c[0]), float(c[1])) for c in feature["geometry"]["coordinates"]]
-            return Route(
+            route = Route(
                 coordinates=coordinates,
                 distance_m=float(summary.get("distance", 0.0)),
                 duration_s=float(summary.get("duration", 0.0)),
             )
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise RoutingProviderError("Unexpected directions response format.") from exc
+        _validate_route(route)
+        return route
 
     def geocode(self, text: str, size: int = 1) -> list[GeocodeResult]:
         """Free-text geocode restricted to the United States."""
@@ -316,6 +319,23 @@ class ORSClient:
 
     def _sleep(self, attempt: int) -> None:
         time.sleep(self.backoff_seconds * attempt)
+
+
+def _validate_route(route: Route) -> None:
+    """Reject geometry we cannot plan on, *before* any caller can cache it.
+
+    A usable route has at least two distinct points and a positive, finite length.
+    Anything else (one point, all points identical, zero or NaN distance) would either
+    crash the geometry step or silently produce a 0-mile plan.
+    """
+    distinct = len(set(route.coordinates))
+    if distinct < 2 or not math.isfinite(route.distance_m) or route.distance_m <= 0:
+        raise RoutingProviderError(
+            "The routing provider returned an unusable route.",
+            points=len(route.coordinates),
+            distinct_points=distinct,
+            distance_m=route.distance_m if math.isfinite(route.distance_m) else None,
+        )
 
 
 def _error_details(data: Any) -> tuple[int | None, str]:

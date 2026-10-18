@@ -4,6 +4,7 @@ All environment-specific values are read from environment variables (or a local
 ``.env`` file) via django-environ. See ``.env.example`` for the full list.
 """
 
+import os
 from pathlib import Path
 
 import environ
@@ -21,8 +22,10 @@ if _env_file.exists():
 DEBUG: bool = env.bool("DEBUG", default=False)
 
 # A throwaway key is acceptable for local development only; production must set one.
-# An empty value (as in .env.example) counts as unset.
-SECRET_KEY: str = env.str("SECRET_KEY", default="")
+# Read straight from os.environ (`.env` is already loaded into it): django-environ's
+# env.str() treats a value starting with "$" as a reference to another variable, and
+# Django's key generator can produce such keys. Empty or whitespace-only counts as unset.
+SECRET_KEY: str = os.environ.get("SECRET_KEY", "").strip()
 if not SECRET_KEY:
     if not DEBUG:
         raise ImproperlyConfigured("SECRET_KEY must be set when DEBUG=False.")

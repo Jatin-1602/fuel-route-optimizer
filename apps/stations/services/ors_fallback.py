@@ -74,6 +74,8 @@ class FallbackCache:
         self.entries: dict[str, dict[str, Any]] = {}
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or not isinstance(data.get("entries", {}), dict):
+                raise ValueError(f"{path}: expected an object with an 'entries' object")
             if data.get("version") != CACHE_VERSION:
                 raise ValueError(f"{path}: unsupported cache version {data.get('version')!r}")
             self.entries = data.get("entries", {})
