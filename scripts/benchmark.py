@@ -75,7 +75,11 @@ def clear_cache(only: str | None = None) -> None:
 
 def request(session: requests.Session, base_url: str, params: dict[str, str]) -> Sample:
     started = time.perf_counter()
-    response = session.get(f"{base_url}/api/v1/route/", params=params, timeout=60)
+    try:
+        # Above the server's worst case (2 x 30 s directions read timeout + overhead).
+        response = session.get(f"{base_url}/api/v1/route/", params=params, timeout=90)
+    except requests.Timeout:
+        return Sample(1000 * (time.perf_counter() - started), None, 0, 0, 0, 0)  # status 0
     wall = 1000 * (time.perf_counter() - started)
     if response.status_code == 429:
         raise RateLimited(response.headers.get("Retry-After", "?"))
@@ -208,7 +212,7 @@ def report(results: list[Result], label: str) -> None:
     print(
         "\np50/p95: client wall time incl. HTTP and JSON transfer; server p50: "
         "meta.timings_ms.request_total; ORS calls/attempts: summed over the phase. "
-        "Failures are upstream (ORS) errors returned as 502/503/504."
+        "Failures are upstream (ORS) errors returned as 502/503/504 (0 = client timeout)."
     )
 
 
