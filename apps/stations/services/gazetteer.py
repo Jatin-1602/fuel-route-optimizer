@@ -35,6 +35,7 @@ GAZETTEER_URL = (
     "{year}_Gazetteer/{year}_Gaz_{kind}_national.zip"
 )
 GAZETTEER_KINDS: tuple[str, ...] = ("place", "cousubs")
+COUNTY_KIND = "counties"
 
 # difflib ratio required for a fuzzy match (same state only). Deliberately very high:
 # e.g. "Middleton, MI" vs "Middletown, MI" score 0.947 but are ~35 miles apart, and a
@@ -44,6 +45,10 @@ FUZZY_CUTOFF = 0.95
 DIAGNOSTIC_FLOOR = 0.6
 
 PLACES_CSV_FIELDS = ("state", "normalized_name", "display_name", "lat", "lon", "kind")
+COUNTIES_CSV_FIELDS = ("state", "normalized_name", "display_name")
+# County-equivalents that people use as a "city" name. Virginia's independent cities
+# ("Richmond city") and Connecticut planning regions are deliberately excluded.
+_COUNTY_SUFFIXES: tuple[str, ...] = (" County", " Parish", " Borough", " Census Area")
 
 
 class PlaceKind(IntEnum):
@@ -91,14 +96,16 @@ class PlaceMatch:
 # --- Download & parse -----------------------------------------------------------------
 
 
-def download_gazetteer(year: int, dest_dir: Path, timeout: float = 60.0) -> list[Path]:
-    """Download and unzip the national place + county-subdivision files for ``year``.
+def download_gazetteer(
+    year: int, dest_dir: Path, kinds: Iterable[str] = GAZETTEER_KINDS, timeout: float = 60.0
+) -> list[Path]:
+    """Download and unzip national Gazetteer files (places + county subdivisions by default).
 
     Returns the paths of the extracted ``.txt`` files. Files already present are reused.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
-    for kind in GAZETTEER_KINDS:
+    for kind in kinds:
         target = dest_dir / f"{year}_Gaz_{kind}_national.txt"
         if not target.exists():
             url = GAZETTEER_URL.format(year=year, kind=kind)
@@ -120,6 +127,15 @@ def _classify(path_kind: str, raw_name: str) -> PlaceKind:
     return PlaceKind.COUSUB_CIVIL
 
 
+def _read_rows(path: Path) -> Iterator[dict[str, str]]:
+    """Rows of a Gazetteer file; delimiter detected (tab before 2026, pipe in 2026)."""
+    with path.open(encoding="utf-8", newline="") as f:
+        header = f.readline()
+        delimiter = "|" if "|" in header else "\t"
+        fields = [h.strip() for h in header.rstrip("\r\n").split(delimiter)]
+        yield from csv.DictReader(f, fieldnames=fields, delimiter=delimiter)
+
+
 def read_gazetteer(path: Path) -> Iterator[GazetteerRecord]:
     """Yield records from a Gazetteer ``.txt`` file (50 states + DC only).
 
@@ -128,23 +144,52 @@ def read_gazetteer(path: Path) -> Iterator[GazetteerRecord]:
     trailing whitespace on the last column.
     """
     path_kind = "place" if "_place_" in path.name else "cousubs"
+    for row in _read_rows(path):
+        state = row["USPS"].strip()
+        if state not in US_STATE_CODES:
+            continue
+        name = row["NAME"].strip()
+        yield GazetteerRecord(
+            state=state,
+            name=name,
+            lat=float(row["INTPTLAT"]),
+            lon=float(row["INTPTLONG"]),
+            land_area=float(row["ALAND"] or 0),
+            kind=_classify(path_kind, name),
+        )
+
+
+def read_counties(path: Path) -> list[tuple[str, str, str]]:
+    """``(state, normalized_name, display_name)`` for every county-equivalent in a state.
+
+    ``"Henrico County"`` -> ``("VA", "henrico", "Henrico County")``.
+    """
+    counties: set[tuple[str, str, str]] = set()
+    for row in _read_rows(path):
+        state, name = row["USPS"].strip(), row["NAME"].strip()
+        if state not in US_STATE_CODES:
+            continue
+        for suffix in _COUNTY_SUFFIXES:
+            if name.endswith(suffix):
+                counties.add((state, normalize_place_name(name.removesuffix(suffix)), name))
+                break
+    return sorted(counties)
+
+
+def write_counties_csv(counties: Iterable[tuple[str, str, str]], path: Path) -> int:
+    """Write ``data/us_counties.csv``; returns the number of rows."""
+    rows = list(counties)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(COUNTIES_CSV_FIELDS)
+        writer.writerows(rows)
+    return len(rows)
+
+
+def read_county_keys(path: Path) -> frozenset[tuple[str, str]]:
+    """``{(state, normalized_county_name)}`` from ``data/us_counties.csv``."""
     with path.open(encoding="utf-8", newline="") as f:
-        header = f.readline()
-        delimiter = "|" if "|" in header else "\t"
-        fields = [h.strip() for h in header.rstrip("\r\n").split(delimiter)]
-        for row in csv.DictReader(f, fieldnames=fields, delimiter=delimiter):
-            state = row["USPS"].strip()
-            if state not in US_STATE_CODES:
-                continue
-            name = row["NAME"].strip()
-            yield GazetteerRecord(
-                state=state,
-                name=name,
-                lat=float(row["INTPTLAT"]),
-                lon=float(row["INTPTLONG"]),
-                land_area=float(row["ALAND"] or 0),
-                kind=_classify(path_kind, name),
-            )
+        return frozenset((r["state"], r["normalized_name"]) for r in csv.DictReader(f))
 
 
 def build_places(records: Iterable[GazetteerRecord]) -> list[Place]:
@@ -270,3 +315,53 @@ class PlaceIndex:
         if not candidates:
             return None
         return candidates[0], difflib.SequenceMatcher(None, key, candidates[0]).ratio()
+
+
+# --- State bounding boxes -------------------------------------------------------------
+
+# Padding added around the hull of a state's Gazetteer points. County subdivisions tile
+# each state, so their internal points span nearly its full extent; 0.25 deg (~17 mi)
+# covers the remaining margin to the real border.
+STATE_BOUNDS_PADDING_DEG = 0.25
+
+
+def wrap_longitude(state: str, lon: float) -> float:
+    """Alaska's Aleutians cross the antimeridian: express them as lon < -180 for AK."""
+    return lon - 360.0 if state == "AK" and lon > 0 else lon
+
+
+@dataclass(frozen=True, slots=True)
+class StateBounds:
+    """Approximate (padded) bounding box of a state."""
+
+    state: str
+    min_lat: float
+    max_lat: float
+    min_lon: float
+    max_lon: float
+
+    def contains(self, lat: float, lon: float) -> bool:
+        """Whether the point lies inside this box (antimeridian-aware for Alaska)."""
+        lon = wrap_longitude(self.state, lon)
+        return self.min_lat <= lat <= self.max_lat and self.min_lon <= lon <= self.max_lon
+
+
+def compute_state_bounds(
+    places: Iterable[Place], padding_deg: float = STATE_BOUNDS_PADDING_DEG
+) -> dict[str, StateBounds]:
+    """Derive a padded bounding box per state from gazetteer points."""
+    lats: dict[str, list[float]] = defaultdict(list)
+    lons: dict[str, list[float]] = defaultdict(list)
+    for p in places:
+        lats[p.state].append(p.lat)
+        lons[p.state].append(wrap_longitude(p.state, p.lon))
+    return {
+        state: StateBounds(
+            state=state,
+            min_lat=min(lats[state]) - padding_deg,
+            max_lat=max(lats[state]) + padding_deg,
+            min_lon=min(lons[state]) - padding_deg,
+            max_lon=max(lons[state]) + padding_deg,
+        )
+        for state in lats
+    }

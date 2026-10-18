@@ -2,12 +2,17 @@
 
 import csv
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from apps.stations.services.cleaning import CleanStation
 from apps.stations.services.gazetteer import PlaceIndex, PlaceKind
+
+if TYPE_CHECKING:
+    from apps.stations.services.ors_fallback import FallbackDecision
 
 GEOCODED_CSV_FIELDS: tuple[str, ...] = (
     "opis_id",
@@ -30,6 +35,8 @@ UNMATCHED_CSV_FIELDS: tuple[str, ...] = (
     "station_count",
     "closest_gazetteer_name",
     "similarity",
+    "ors_result",
+    "ors_reason",
 )
 
 _SOURCE_BY_KIND: dict[PlaceKind, str] = {
@@ -67,6 +74,8 @@ class UnmatchedCity:
     station_count: int
     closest_gazetteer_name: str
     similarity: float
+    ors_result: str = ""  # label returned by the ORS fallback, if it was queried
+    ors_reason: str = ""  # why that result was rejected
 
 
 @dataclass(slots=True)
@@ -85,36 +94,67 @@ class GeocodingReport:
         return self.matched / self.stations_in if self.stations_in else 0.0
 
 
+def find_unmatched_pairs(stations: list[CleanStation], index: PlaceIndex) -> list[tuple[str, str]]:
+    """Unique ``(city, state)`` pairs the offline index cannot resolve, most stations first."""
+    counts: Counter[tuple[str, str]] = Counter(
+        (s.city, s.state) for s in stations if index.lookup(s.city, s.state) is None
+    )
+    return [pair for pair, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def _with_coordinates(
+    station: CleanStation, lat: float, lon: float, source: str, match: str
+) -> GeocodedStation:
+    return GeocodedStation(
+        **{k: v for k, v in asdict(station).items() if k != "source_rows"},
+        lat=lat,
+        lon=lon,
+        geocode_source=source,
+        geocode_match=match,
+        source_rows=station.source_rows,
+    )
+
+
 def geocode_stations(
-    stations: list[CleanStation], index: PlaceIndex
+    stations: list[CleanStation],
+    index: PlaceIndex,
+    fallback: "Mapping[tuple[str, str], FallbackDecision] | None" = None,
 ) -> tuple[list[GeocodedStation], GeocodingReport]:
-    """Attach gazetteer coordinates to each station; unresolved stations are reported."""
+    """Attach coordinates to each station; unresolved stations are reported.
+
+    The offline gazetteer is tried first. ``fallback`` optionally maps
+    ``(city, state)`` to an ORS fallback decision: accepted ones supply coordinates
+    (``geocode_source="ors"``), rejected ones are reported with their reason.
+    """
+    fallback = fallback or {}
     report = GeocodingReport(stations_in=len(stations))
     geocoded: list[GeocodedStation] = []
     unmatched: dict[tuple[str, str], int] = defaultdict(int)
 
     for station in stations:
         match = index.lookup(station.city, station.state)
-        if match is None:
-            unmatched[(station.city, station.state)] += 1
-            continue
-        source = _SOURCE_BY_KIND[match.place.kind]
-        report.matched_by[f"{source}:{match.method}"] += 1
-        geocoded.append(
-            GeocodedStation(
-                **{k: v for k, v in asdict(station).items() if k != "source_rows"},
-                lat=match.place.lat,
-                lon=match.place.lon,
-                geocode_source=source,
-                geocode_match=match.method,
-                source_rows=station.source_rows,
+        if match is not None:
+            source = _SOURCE_BY_KIND[match.place.kind]
+            report.matched_by[f"{source}:{match.method}"] += 1
+            geocoded.append(
+                _with_coordinates(station, match.place.lat, match.place.lon, source, match.method)
             )
-        )
+            continue
+        decision = fallback.get((station.city, station.state))
+        if decision is not None and decision.accepted and decision.result is not None:
+            method = "exact" if decision.result.match_type == "exact" else "fuzzy"
+            report.matched_by[f"ors:{method}"] += 1
+            geocoded.append(
+                _with_coordinates(station, decision.result.lat, decision.result.lon, "ors", method)
+            )
+            continue
+        unmatched[(station.city, station.state)] += 1
 
     report.matched = len(geocoded)
     report.unmatched_stations = sum(unmatched.values())
     for (city, state), count in sorted(unmatched.items(), key=lambda kv: (-kv[1], kv[0])):
         closest = index.closest_name(city, state)
+        decision = fallback.get((city, state))
         report.unmatched_cities.append(
             UnmatchedCity(
                 city=city,
@@ -122,6 +162,8 @@ def geocode_stations(
                 station_count=count,
                 closest_gazetteer_name=closest[0] if closest else "",
                 similarity=round(closest[1], 3) if closest else 0.0,
+                ors_result=decision.result.label if decision and decision.result else "",
+                ors_reason=decision.reason if decision else "",
             )
         )
     return geocoded, report
