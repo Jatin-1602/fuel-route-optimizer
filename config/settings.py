@@ -120,6 +120,9 @@ ORS_API_KEY: str = env.str("ORS_API_KEY", default="")
 # shutdown 2026-11-02..06). Service paths (/openrouteservice/v2, /pelias/v1) are appended
 # by the client; no trailing slash. See docs/DESIGN_DECISIONS.md (ADR-005).
 ORS_BASE_URL: str = env.str("ORS_BASE_URL", default="https://api.heigit.org").rstrip("/")
+if not DEBUG and not ORS_BASE_URL.startswith("https://"):
+    # The API key travels in the Authorization header; never send it in clear text.
+    raise ImproperlyConfigured("ORS_BASE_URL must use https:// when DEBUG=False.")
 ORS_CONNECT_TIMEOUT_SECONDS: float = env.float("ORS_CONNECT_TIMEOUT_SECONDS", default=5.0)
 # Directions: a cached NYC->LA route returns in ~1-2 s, but ORS's FIRST computation of a long
 # route regularly took 10-20 s in testing (ADR-005), so directions get 30 s. Geocoding is
@@ -158,6 +161,11 @@ REST_FRAMEWORK = {
     # 2,000 directions/day, 40/min). Counters live in the default cache.
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
     "DEFAULT_THROTTLE_RATES": {"route": env.str("ROUTE_THROTTLE_RATE", default="30/min")},
+    # How many reverse proxies sit in front of the app. 0 (default) = identify clients by
+    # the socket address only and ignore X-Forwarded-For, which clients can forge. DRF's
+    # own default (None) trusts the whole header, letting anyone bypass the throttle by
+    # sending a different X-Forwarded-For per request. Behind one proxy, set it to 1.
+    "NUM_PROXIES": env.int("TRUSTED_PROXY_COUNT", default=0),
 }
 
 SPECTACULAR_SETTINGS = {
@@ -186,6 +194,18 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# --- HTTPS hardening (production) ---------------------------------------------
+# Off by default so the local demo works over plain HTTP; a TLS deployment enables
+# them via env (see docs/SETUP.md). With all set, `manage.py check --deploy` is clean.
+SECURE_SSL_REDIRECT: bool = env.bool("SECURE_SSL_REDIRECT", default=False)
+SECURE_HSTS_SECONDS: int = env.int("SECURE_HSTS_SECONDS", default=0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS: bool = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False)
+SECURE_HSTS_PRELOAD: bool = env.bool("SECURE_HSTS_PRELOAD", default=False)
+SESSION_COOKIE_SECURE: bool = env.bool("SESSION_COOKIE_SECURE", default=False)
+CSRF_COOKIE_SECURE: bool = env.bool("CSRF_COOKIE_SECURE", default=False)
+if env.bool("SECURE_PROXY_SSL", default=False):  # TLS terminated by a trusted proxy
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # --- Logging ------------------------------------------------------------------
 

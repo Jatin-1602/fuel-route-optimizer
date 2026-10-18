@@ -3,6 +3,7 @@
 import logging
 from typing import Any
 
+from django.core.exceptions import RequestDataTooBig, SuspiciousOperation
 from rest_framework import exceptions, status
 from rest_framework.response import Response
 
@@ -45,6 +46,19 @@ def api_exception_handler(exc: Exception, context: dict[str, Any]) -> Response:
         )
         response["Retry-After"] = str(wait)
         return response
+
+    if isinstance(exc, RequestDataTooBig):  # body over DATA_UPLOAD_MAX_MEMORY_SIZE
+        return Response(
+            error_body("request_too_large", "The request body is too large."),
+            status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        )
+
+    if isinstance(exc, SuspiciousOperation):  # e.g. too many fields; never echo details
+        logger.warning("Suspicious request rejected: %s", type(exc).__name__)
+        return Response(
+            error_body("bad_request", "The request was rejected."),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     if isinstance(exc, exceptions.APIException):  # 404, 405, 415, parse errors, ...
         return Response(error_body(str(exc.default_code), str(exc.detail)), status=exc.status_code)

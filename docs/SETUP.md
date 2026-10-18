@@ -101,6 +101,9 @@ The free tier allows 2,000 directions requests per day (40/min) and a route of a
 | `GAZETTEER_YEAR` | `2026` | Census Gazetteer vintage for `build_places` |
 | `LOG_LEVEL` | `INFO` | Log level for `apps.*` loggers |
 | `WARM_ON_STARTUP` | *(unset)* | `1` loads stations and gazetteer at WSGI import (use with `gunicorn --preload`) |
+| `TRUSTED_PROXY_COUNT` | `0` | Reverse proxies in front of the app. 0 ignores `X-Forwarded-For` (clients can forge it); set 1 behind one proxy |
+| `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `SECURE_HSTS_INCLUDE_SUBDOMAINS`, `SECURE_HSTS_PRELOAD`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` | off / `0` | HTTPS hardening for a TLS deployment; with all set, `manage.py check --deploy` is clean |
+| `SECURE_PROXY_SSL` | `False` | `True` only if a trusted proxy terminates TLS and sets `X-Forwarded-Proto` |
 
 ## Database and data
 
@@ -135,6 +138,21 @@ See [DATA_PIPELINE.md](DATA_PIPELINE.md).
 | Clear caches | `python manage.py clear_cache` (`--only route\|response\|geocode`, `--all` also resets throttle counters) |
 | Benchmark | `python scripts/benchmark.py --base-url http://localhost:8000` (run the server with `ROUTE_THROTTLE_RATE=1000/min`) |
 | Postman / newman | see [POSTMAN_GUIDE.md](POSTMAN_GUIDE.md) |
+
+## Security checks
+
+```bash
+# production settings review (expect 0 issues with the HTTPS variables set)
+DEBUG=False SECRET_KEY=<50+ random chars> ALLOWED_HOSTS=api.example.com \
+SECURE_SSL_REDIRECT=True SECURE_HSTS_SECONDS=31536000 SECURE_HSTS_INCLUDE_SUBDOMAINS=True \
+SECURE_HSTS_PRELOAD=True SESSION_COOKIE_SECURE=True CSRF_COOKIE_SECURE=True \
+python manage.py check --deploy
+
+# dependency vulnerabilities (in a throwaway venv, so pip-audit isn't a project dependency)
+python3.12 -m venv /tmp/audit && /tmp/audit/bin/pip install pip-audit && /tmp/audit/bin/pip-audit -r requirements-dev.txt
+```
+
+Findings and accepted risks are in [ADR-020](DESIGN_DECISIONS.md).
 
 ## Troubleshooting
 

@@ -114,6 +114,8 @@ Every error uses one envelope:
 |---|---|---|
 | 400 | `invalid_input` | Missing or invalid parameter; `details` maps field → messages (e.g. `start_fuel` larger than the tank) |
 | 400 | `parse_error` | Malformed JSON body |
+| 400 | `bad_request` | Request rejected by Django's safety limits (e.g. more than 1,000 fields) |
+| 413 | `request_too_large` | Body larger than 2.5 MB |
 | 405 | `method_not_allowed` | e.g. `PUT` |
 | 422 | `location_not_found` | Nothing in the US matched the text |
 | 422 | `location_outside_usa` | Coordinates or a named region outside the 50 states + DC |
@@ -141,7 +143,7 @@ The map page renders the same errors as an HTML page with the same status code.
 
 ## Rate limits
 
-`/api/v1/route/` and `/api/v1/route/map/` allow **30 requests per minute per client IP** (`ROUTE_THROTTLE_RATE`). This protects the free ORS quota of 2,000 directions requests per day and 40 per minute. Health and docs aren't throttled. Throttled responses are 429 `rate_limited` with a `Retry-After` header.
+`/api/v1/route/` and `/api/v1/route/map/` allow **30 requests per minute per client IP** (`ROUTE_THROTTLE_RATE`). The client IP is the socket address. `X-Forwarded-For` is ignored unless `TRUSTED_PROXY_COUNT` says how many proxies to trust, so the header can't be used to dodge the limit. This protects the free ORS quota of 2,000 directions requests per day and 40 per minute. Health and docs aren't throttled. Throttled responses are 429 `rate_limited` with a `Retry-After` header.
 
 ## curl examples
 

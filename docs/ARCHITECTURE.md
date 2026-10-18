@@ -150,7 +150,8 @@ Details are in [DATA_PIPELINE.md](DATA_PIPELINE.md).
 
 | HTTP | `error.code` | Raised by |
 |---|---|---|
-| 400 | `invalid_input`, `parse_error` | serializer, JSON parser |
+| 400 | `invalid_input`, `parse_error`, `bad_request` | serializer, JSON parser, Django request limits |
+| 413 | `request_too_large` | body over 2.5 MB |
 | 405 | `method_not_allowed` | DRF |
 | 422 | `location_not_found`, `location_outside_usa`, `same_location`, `route_unreachable` | geocoding, planner, optimizer gap, ORS 2004/2009/2010 |
 | 429 | `rate_limited` | our throttle, or ORS 429 |

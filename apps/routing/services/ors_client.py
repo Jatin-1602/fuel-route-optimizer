@@ -304,6 +304,8 @@ class ORSClient:
             return data
 
         ors_code, ors_message = _error_details(data)
+        if self._api_key:  # provider text is echoed to clients; never let it carry our key
+            ors_message = ors_message.replace(self._api_key, "[redacted]")
         details = {"provider_status": status, "provider_code": ors_code}
         if status in (401, 403):
             raise RoutingProviderUnavailableError(

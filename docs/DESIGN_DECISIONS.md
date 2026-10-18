@@ -23,6 +23,7 @@ Short ADR-style entries: context → decision → consequences.
 | 017 | Throttling |
 | 018 | Lazy in-memory data; gunicorn `--preload` + `WARM_ON_STARTUP` |
 | 019 | Response design |
+| 020 | Security review: fixes and accepted risks |
 | — | [What I would do with more time](#what-i-would-do-with-more-time) |
 
 ---
@@ -334,6 +335,68 @@ Improvement: add `2 × off_route_miles` to the consumption at each stop, or geoc
 - `meta.external_api_calls` counts API operations and `meta.external_api_attempts` counts retries (ADR-009). `meta.timings_ms` breaks down every step.
 - Errors use one envelope, `{"error": {"code", "message", "details"}}`, produced by a single DRF exception handler. Domain exceptions carry their own code and HTTP status.
 - `map_url` reproduces the request as a Leaflet page and is served from the same caches (0 calls).
+
+---
+
+## ADR-020 — Security review: fixes and accepted risks
+
+**Context.** This was a manual review on 2026-10-18 (`/security-review` needs a git remote, and there is none yet). It covered:
+- secrets in code, config and history;
+- input validation;
+- error leakage, with `DEBUG` on and off;
+- throttling;
+- the map page (XSS, SRI);
+- outbound HTTP;
+- production settings;
+- dependencies.
+
+The regression tests are in `tests/test_security.py`.
+
+**Fixed:**
+
+| Severity | Issue | Fix |
+|---|---|---|
+| **Medium** | **The throttle could be bypassed** by sending a different `X-Forwarded-For` header per request. DRF's default `NUM_PROXIES=None` trusts the whole header, so 5 requests under a 2/min limit all returned 200. | `NUM_PROXIES` comes from `TRUSTED_PROXY_COUNT` (default **0**: the socket address only). Behind *n* proxies, only the *n*-th hop from the right is used, so prepending forged hops doesn't help. |
+| Medium | A `SECRET_KEY` starting with `$` (which Django's generator can produce) was silently expanded to empty by django-environ, and a whitespace-only key was accepted. | The key is read literally from `os.environ`; blank means unset; `DEBUG=False` refuses to start without one. |
+| Low | Requests over `DATA_UPLOAD_MAX_MEMORY_SIZE`, or with too many fields, returned **500** `internal_error`. | 413 `request_too_large` / 400 `bad_request`, without echoing details. |
+| Low | HTTPS hardening couldn't be switched on without code changes (`check --deploy`: W004, W008, W012, W016). | `SECURE_SSL_REDIRECT`, `SECURE_HSTS_*`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` and `SECURE_PROXY_SSL` come from env. With them set, `check --deploy` reports **no issues** (tested). |
+| Low | A plain-`http://` `ORS_BASE_URL` would send the API key in clear text. | Refused at startup when `DEBUG=False`. |
+| Low | ORS error text is echoed in 502 details (`provider_message`). An ORS message quoting our key would have leaked it (a mutation test confirmed this on the 400 and 500 paths). | The key is redacted from all provider text before it's returned. |
+
+**Verified, no change needed:**
+- **Secrets:** the actual key appears in none of the 170 blobs across all commits, and there are no tokens or private keys. `.env`, `db.sqlite3`, `personal-notes/` and `PROMPT.md` were never committed. Health exposes the key only as a boolean.
+- **Input limits:**
+  - `start`/`finish` ≤ 200 chars, `start_fuel` ≤ 20;
+  - every number has min/max, and NaN/±Inf are rejected;
+  - `profile` is a choice;
+  - non-object JSON → 400;
+  - bodies are capped at 2.5 MB and 1,000 fields (Django defaults).
+- **Error envelope:** unhandled exceptions return a generic `internal_error` with no traceback, message or settings, whether `DEBUG` is True or False (tested). `DEBUG` defaults to `False`, and `ALLOWED_HOSTS` defaults to localhost.
+- **Map page:**
+  - data is embedded with `json_script`, so `<`, `>` and `&` are escaped;
+  - the table and popups are built with `textContent`, with no `innerHTML`;
+  - the error page is auto-escaped (tested with hostile query text and a hostile station name);
+  - Leaflet 1.9.4 is pinned, and its **SRI hashes were re-checked against the CDN**.
+- **Outbound HTTP:**
+  - only `ORS_BASE_URL` plus fixed paths are called;
+  - user text is sent only as query or JSON values, never as a URL, which rules out SSRF (tested with a metadata-service URL as input);
+  - every call has connect and read timeouts;
+  - TLS verification stays on (`verify=False` appears nowhere);
+  - `requests` drops the `Authorization` header on a cross-host redirect.
+- **Dependencies:** `pip-audit 2.10.1` against `requirements-dev.txt` found **no known vulnerabilities**.
+
+**Accepted risks:**
+
+| Risk | Why accepted |
+|---|---|
+| No authentication | It's a public, read-only demo API with no user data. Throttling and validation protect the provider quota. Add API keys before a real deployment. |
+| No Content-Security-Policy on the map page | Its script is inline. It's mitigated by `json_script`, `textContent` and SRI. Improvement: Django 6's built-in CSP middleware with nonces. |
+| HTTPS settings are off by default | Required for the local HTTP demo. Production enables them through env; see `docs/SETUP.md`. |
+| Throttling is per client IP | Users behind one NAT share a budget. Set `TRUSTED_PROXY_COUNT` correctly behind a proxy. |
+| Free-text addresses are sent to ORS | A third-party processor sees the address text. City/state and coordinate inputs never leave the server. |
+| `provider_message` from ORS appears in 502 details | It helps debugging. Our API key is redacted from it before it's returned (tested). |
+| Admin at `/admin/` | Requires a superuser, protected by sessions and CSRF. Can be moved or disabled in production. |
+| `pip-audit` isn't in `requirements-dev.txt` | It keeps the reviewer install lean. Run it in CI or on demand (`docs/SETUP.md`). |
 
 ---
 
