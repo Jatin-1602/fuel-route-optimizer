@@ -8,6 +8,7 @@ import pytest
 from django.core.cache import cache
 from rest_framework.test import APIClient
 
+from apps.routing.services.corridor import set_station_index
 from apps.routing.services.ors_client import get_ors_client
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ors"
@@ -22,8 +23,10 @@ def _isolated_settings(settings) -> Iterator[None]:
     settings.ORS_BASE_URL = ORS_TEST_BASE_URL
     cache.clear()
     get_ors_client.cache_clear()
+    set_station_index(None)  # each test loads (or installs) its own station index
     yield
     get_ors_client.cache_clear()
+    set_station_index(None)
 
 
 @pytest.fixture

@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.routing.serializers import HealthResponseSerializer
-from apps.stations.models import FuelStation
+from apps.routing.services.corridor import get_station_index
 
 
 class HealthView(APIView):
@@ -20,7 +20,7 @@ class HealthView(APIView):
         payload = {
             "status": "ok",
             "django_version": django.get_version(),
-            "stations_loaded": FuelStation.objects.count(),
+            "stations_loaded": len(get_station_index()),  # in-memory index the API serves from
             "ors_api_key_configured": bool(settings.ORS_API_KEY),
         }
         return Response(HealthResponseSerializer(payload).data)

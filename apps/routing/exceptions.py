@@ -70,3 +70,8 @@ class RoutingNotConfiguredError(RoutingProviderUnavailableError):
 class RoutingProviderTimeoutError(DomainError):
     code, status_code = "routing_provider_timeout", 504
     default_message = "The routing provider timed out."
+
+
+class StationDataUnavailableError(DomainError):
+    code, status_code = "station_data_unavailable", 503
+    default_message = "No fuel stations are loaded. Run `python manage.py load_stations`."
