@@ -1,0 +1,7 @@
+# Development / test dependencies
+-r requirements.txt
+pytest==9.1.1
+pytest-django==4.14.0
+pytest-cov==7.1.0
+responses==0.26.3
+ruff==0.17.1

@@ -1,0 +1,28 @@
+[project]
+name = "fuel-route-optimizer"
+version = "1.0.0"
+description = "Django API that plans cost-optimal fuel stops along a US driving route."
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["apps/*/migrations"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes
+    "I",       # isort
+    "UP",      # pyupgrade
+    "B",       # bugbear
+    "SIM",     # simplify
+    "DJ",      # flake8-django
+    "RUF",     # ruff-specific
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
