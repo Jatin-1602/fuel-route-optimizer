@@ -1,5 +1,12 @@
 # Fuel Route Optimizer
 
+> **TL;DR**
+> - **What:** a Django 6.1 + DRF API. Give it two US locations, and it returns the route (GeoJSON + Leaflet map), cost-effective fuel stops for a 500-mile/10-mpg vehicle, and the total fuel cost.
+> - **Run:** `pip install -r requirements-dev.txt`, `cp .env.example .env` (add a free ORS key), `python manage.py migrate && python manage.py load_stations && python manage.py runserver`, then open `/api/docs/`.
+> - **NYC → LA (recorded route):** 7 stops, $860.57, which is $7.69 more than the 19-stop pure-cost optimum and $120.59 less than paying the corridor-average price.
+> - **API calls and speed:** 1 routing call per new trip, 0 when cached; cached responses take 7–36 ms on gunicorn; 6,604 of 6,626 stations (99.67%) are geocoded offline or from a committed cache.
+> - **Quality:** 316 tests, with the optimizer verified against a brute-force solver on 900 random instances; 17-request Postman collection; 19 ADRs.
+
 A Django REST API that plans a driving route between two US locations and chooses **cost-effective fuel stops** along it. It uses the provided truck-stop price list, a vehicle with a 500-mile range at 10 mpg, and returns the route as GeoJSON plus an interactive map. A typical request makes **one** routing API call (OpenRouteService), and a repeated request makes **none**.
 
 On the recorded New York → Los Angeles route (2,811.6 mi), the default plan makes **7 stops** and costs **$860.57**. That is $7.69 more than the 19-stop pure-cost optimum ($852.87), and $120.59 less than paying the corridor's average price.
