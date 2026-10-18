@@ -98,6 +98,12 @@ GAZETTEER_YEAR: int = env.int("GAZETTEER_YEAR", default=2026)
 CACHES = {
     "default": env.cache("CACHE_URL", default=f"filecache://{BASE_DIR / '.cache'}"),
 }
+if CACHES["default"]["BACKEND"].endswith("FileBasedCache"):
+    # Default MAX_ENTRIES is 300, after which a random third is culled; routes/responses
+    # are ~0.2-1 MB each, so 10,000 entries is still a bounded disk footprint.
+    CACHES["default"].setdefault("OPTIONS", {}).setdefault(
+        "MAX_ENTRIES", env.int("CACHE_MAX_ENTRIES", default=10_000)
+    )
 
 ROUTE_CACHE_TTL_SECONDS: int = env.int("ROUTE_CACHE_TTL_SECONDS", default=60 * 60 * 24)
 GEOCODE_CACHE_TTL_SECONDS: int = env.int("GEOCODE_CACHE_TTL_SECONDS", default=60 * 60 * 24 * 30)

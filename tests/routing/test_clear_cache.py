@@ -25,6 +25,24 @@ def test_invalidating_a_namespace_hides_its_entries_only() -> None:
     assert cache.get(namespaced_key("geocode", "a")) == "G"
 
 
+def test_evicted_generation_never_reuses_old_keys() -> None:
+    """The file cache culls random entries when full; a lost counter must not resurrect
+    entries written under an older generation."""
+    old_key = namespaced_key("route", "a")
+    cache.set(old_key, "stale")
+    invalidate("route")
+    cache.delete("cache-generation:route")  # simulate eviction of the counter
+
+    assert namespaced_key("route", "a") != old_key
+    assert cache.get(namespaced_key("route", "a")) is None
+
+
+def test_generations_only_increase() -> None:
+    first = generation("geocode")
+    assert invalidate("geocode") > first
+    assert invalidate("geocode") > first + 1
+
+
 def test_unknown_namespace_rejected() -> None:
     with pytest.raises(ValueError):
         namespaced_key("nope", "a")
