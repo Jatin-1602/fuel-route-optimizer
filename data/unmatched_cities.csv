@@ -1,131 +1,18 @@
-city,state,station_count,closest_gazetteer_name,similarity
-Irving,NY,4,irvington,0.8
-Ruther Glen,VA,4,rushmere,0.632
-Breezewood,PA,3,greenwood,0.737
-Ellabell,GA,3,ellaville,0.706
-Ellenwood,GA,3,glenwood,0.824
-Raphine,VA,3,riner,0.667
-Waddy,KY,3,,0.0
-Willow Beach,AZ,3,willow valley,0.64
-Antioch,TN,2,,0.0
-Clear Brook,VA,2,middlebrook,0.636
-Curtis Bay,MD,2,,0.0
-Doswell,VA,2,mcdowell,0.8
-Drums,PA,2,rush,0.667
-Gansevoort,NY,2,gasport,0.706
-Glendale,KY,2,glencoe,0.667
-Glenmont,NY,2,clermont,0.75
-Henrico,VA,2,cheriton,0.667
-Hurricane Mills,TN,2,church hill,0.615
-Jean,NV,2,,0.0
-Lake Ariel,PA,2,clearfield,0.7
-Midland,GA,2,milan,0.833
-Mount Nebo,WV,2,mt carbon,0.625
-North Jackson,OH,2,north madison,0.769
-Ottawa Lake,MI,2,otter lake,0.762
-Pendleton,KY,2,princeton,0.667
-Pioneer,TN,2,pinson,0.615
-Providence Forge,VA,2,prince george,0.759
-Saint Johns,FL,2,port st john,0.7
-Sawyer,MI,2,k i sawyer,0.75
-Skippers,VA,2,,0.0
-Smiths Creek,MI,2,swartz creek,0.667
-Woodford,VA,2,woodbridge,0.667
-Alvada,OH,1,nevada,0.667
-Batesburg,SC,1,stateburg,0.778
-Belden,MS,1,eden,0.8
-Bethany,LA,1,destrehan,0.625
-Blakeslee,PA,1,blakely,0.75
-Bois D Arc,MO,1,bismarck,0.667
-Brogue,PA,1,rote,0.6
-Candler,NC,1,vander,0.769
-Casa Blanca,NM,1,pena blanca,0.727
-Castle Creek,NY,1,silver creek,0.75
-Cedar Grove,TN,1,oak grove,0.7
-Chappell Hill,TX,1,new chapel hill,0.786
-Chesterfield,VA,1,deerfield,0.762
-Clines Corners,NM,1,boles acres,0.64
-Colgate,WI,1,coloma,0.615
-Cross Junction,VA,1,,0.0
-Denmark,TN,1,,0.0
-Dewey,AZ,1,,0.0
-Diamond,OH,1,raymond,0.714
-Drewryville,VA,1,berryville,0.762
-Dumont,CO,1,valmont,0.615
-Eastaboga,AL,1,east escambia,0.636
-Edwards,IL,1,seward,0.769
-Elizabethport,NJ,1,elizabeth,0.818
-Etters,PA,1,peters,0.833
-Fackler,AL,1,hackleburg,0.706
-Feasterville Trevose,PA,1,feasterville,0.75
-Fortson,GA,1,folkston,0.667
-Franksville,WI,1,janesville,0.762
-Gladstone,VA,1,blackstone,0.737
-Grassy Butte,ND,1,rainy butte,0.783
-Greentown,PA,1,georgetown,0.737
-Grovertown,IN,1,groverton,0.947
-Gum Spring,VA,1,warm springs,0.727
-Hamptonville,NC,1,simpsonville,0.75
-Hankamer,TX,1,chandler,0.625
-Harpursville,NY,1,hartsville,0.818
-Hartford,TN,1,telford,0.667
-Heiskell,TN,1,whitwell,0.625
-Hogansburg,NY,1,ogdensburg,0.8
-Hot Springs National Park,AR,1,hot springs village,0.591
-Hunt Valley,MD,1,green valley,0.696
-Irvington,AL,1,livingston,0.842
-Isom,KY,1,saloma,0.6
-Ivydale,WV,1,dailey,0.615
-Joelton,TN,1,elkton,0.769
-Kearneysville,WV,1,wardensville,0.72
-Knoxville,AL,1,orrville,0.706
-Kodak,TN,1,,0.0
-Lambsburg,VA,1,williamsburg,0.762
-Lanexa,VA,1,cana,0.6
-Larsen,WI,1,arena,0.727
-Lawrence,MS,1,florence,0.75
-Leesville,SC,1,reevesville,0.8
-Lenorah,TX,1,splendora,0.75
-Linwood,NC,1,glenwood,0.8
-Maxwell,TX,1,axtell,0.769
-Mc Alpin,FL,1,canal point,0.667
-Middlebury Center,PA,1,middlebury,0.741
-Middleton,MI,1,middletown,0.947
-Milldale,CT,1,,0.0
-Millersville,MD,1,myersville,0.818
-Milltown,MT,1,hamilton,0.75
-Monroeton,PA,1,morton,0.8
-New Boston,MI,1,newton,0.75
-New Hampton,NY,1,east hampton,0.783
-Newburg,MD,1,pinesburg,0.75
-Newport,MI,1,worth,0.667
-Newton Lower Falls,MA,1,,0.0
-North Billerica,MA,1,billerica,0.75
-North Oxford,MA,1,oxford,0.667
-Nottingham,MD,1,,0.0
-Orla,TX,1,iola,0.75
-Pryor,OK,1,proctor,0.667
-Pueblo Of Acoma,NM,1,pueblo pintado,0.552
-Quinton,VA,1,vinton,0.769
-Rabun Gap,GA,1,,0.0
-Ridgedale,MO,1,ridgely,0.75
-Rising Fawn,GA,1,,0.0
-Roans Prairie,TX,1,grays prairie,0.846
-Rockville,VA,1,ruckersville,0.762
-Rosedale,VA,1,sedley,0.714
-Round O,SC,1,,0.0
-Saint Croix,IN,1,stroh,0.615
-Summerfield,FL,1,springfield,0.636
-Supply,NC,1,,0.0
-Tafton,PA,1,crafton,0.769
-Teays,WV,1,st marys,0.615
-Tinnie,NM,1,,0.0
-Townsend,VA,1,,0.0
-Troy,VA,1,,0.0
-Wall,TX,1,wallis,0.8
-Waterfall,PA,1,westfall,0.706
-West Chesterfield,NH,1,chesterfield,0.828
-West Coxsackie,NY,1,coxsackie,0.783
-West Helena,AR,1,helena west helena,0.759
-Westover,MD,1,west ocean,0.667
-Winnabow,NC,1,,0.0
+city,state,station_count,closest_gazetteer_name,similarity,ors_result,ors_reason
+Antioch,TN,2,,0.0,"Antioch, TN, USA",ambiguous: 5 localities named like 'Antioch' in TN up to 161 mi apart
+Henrico,VA,2,cheriton,0.667,"Henrico, VA, USA","'Henrico' is also a county in VA, but the result is in 'Mecklenburg County'"
+Mount Nebo,WV,2,mt carbon,0.625,"Mount Nebo, WV, USA",ambiguous: 2 localities named like 'Mount Nebo' in WV up to 115 mi apart
+Pendleton,KY,2,princeton,0.667,"Pendleton, KY, USA","'Pendleton' is also a county in KY, but the result is in 'Henry County'"
+Saint Johns,FL,2,port st john,0.7,"Saint Johns Park, FL, USA",ambiguous: 3 localities named like 'Saint Johns' in FL up to 102 mi apart
+Bois D Arc,MO,1,bismarck,0.667,"Missouri, USA",layer 'region' is not locality-type
+Cedar Grove,TN,1,oak grove,0.7,"Cedar Grove, TN, USA",ambiguous: 5 localities named like 'Cedar Grove' in TN up to 360 mi apart
+Chesterfield,VA,1,deerfield,0.762,"Chesterfield, VA, USA",ambiguous: 4 localities named like 'Chesterfield' in VA up to 207 mi apart
+Denmark,TN,1,,0.0,"Denmark, TN, USA",ambiguous: 2 localities named like 'Denmark' in TN up to 90 mi apart
+Edwards,IL,1,seward,0.769,"Edwards, IL, USA","'Edwards' is also a county in IL, but the result is in 'Peoria County'"
+Irvington,AL,1,livingston,0.842,"Irvington, AL, USA",ambiguous: 3 localities named like 'Irvington' in AL up to 295 mi apart
+Ivydale,WV,1,dailey,0.615,"Ivydale, WV, USA",ambiguous: 2 localities named like 'Ivydale' in WV up to 39 mi apart
+Joelton,TN,1,elkton,0.769,"Tennessee, USA",layer 'region' is not locality-type
+Knoxville,AL,1,orrville,0.706,"Knoxville, AL, USA",ambiguous: 2 localities named like 'Knoxville' in AL up to 117 mi apart
+Lawrence,MS,1,florence,0.75,"Lawrence, MS, USA","'Lawrence' is also a county in MS, but the result is in 'Newton County'"
+Mc Alpin,FL,1,canal point,0.667,"Florida, USA",layer 'region' is not locality-type
+Rosedale,VA,1,sedley,0.714,"Rosedale, VA, USA",ambiguous: 2 localities named like 'Rosedale' in VA up to 262 mi apart
