@@ -8,4 +8,5 @@ class HealthResponseSerializer(serializers.Serializer):
 
     status = serializers.CharField()
     django_version = serializers.CharField()
+    stations_loaded = serializers.IntegerField()
     ors_api_key_configured = serializers.BooleanField()

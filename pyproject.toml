@@ -20,6 +20,8 @@ select = [
     "DJ",      # flake8-django
     "RUF",     # ruff-specific
 ]
+# RUF012 flags Django's idiomatic class attributes (Meta.ordering, ModelAdmin.list_display).
+ignore = ["RUF012"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"

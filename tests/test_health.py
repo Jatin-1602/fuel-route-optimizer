@@ -1,7 +1,10 @@
 """Tests for the health endpoint and API docs wiring."""
 
 import django
+import pytest
 from django.urls import reverse
+
+pytestmark = pytest.mark.django_db
 
 
 def test_health_ok(api_client) -> None:
@@ -11,6 +14,7 @@ def test_health_ok(api_client) -> None:
     body = response.json()
     assert body["status"] == "ok"
     assert body["django_version"] == django.get_version()
+    assert body["stations_loaded"] == 0
     assert body["ors_api_key_configured"] is False
 
 

@@ -79,6 +79,16 @@ DATABASES = {
     "default": env.db("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
 }
 
+# --- Data files ---------------------------------------------------------------
+
+DATA_DIR = BASE_DIR / "data"
+FUEL_PRICES_CSV = DATA_DIR / "fuel-prices-for-be-assessment.csv"
+US_PLACES_CSV = DATA_DIR / "us_places.csv"
+STATIONS_GEOCODED_CSV = DATA_DIR / "stations_geocoded.csv"
+UNMATCHED_CITIES_CSV = DATA_DIR / "unmatched_cities.csv"
+GAZETTEER_RAW_DIR = DATA_DIR / "raw"  # downloaded Census files (gitignored)
+GAZETTEER_YEAR: int = env.int("GAZETTEER_YEAR", default=2026)
+
 # --- Cache --------------------------------------------------------------------
 # File-based by default so cached routes survive `runserver` restarts (handy for demos).
 # Override with e.g. CACHE_URL=locmemcache:// or redis://localhost:6379/1
