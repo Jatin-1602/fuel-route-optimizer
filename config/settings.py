@@ -84,8 +84,10 @@ DATABASES = {
 DATA_DIR = BASE_DIR / "data"
 FUEL_PRICES_CSV = DATA_DIR / "fuel-prices-for-be-assessment.csv"
 US_PLACES_CSV = DATA_DIR / "us_places.csv"
+US_COUNTIES_CSV = DATA_DIR / "us_counties.csv"
 STATIONS_GEOCODED_CSV = DATA_DIR / "stations_geocoded.csv"
 UNMATCHED_CITIES_CSV = DATA_DIR / "unmatched_cities.csv"
+ORS_FALLBACK_CACHE = DATA_DIR / "ors_geocode_cache.json"  # committed; see ors_fallback.py
 GAZETTEER_RAW_DIR = DATA_DIR / "raw"  # downloaded Census files (gitignored)
 GAZETTEER_YEAR: int = env.int("GAZETTEER_YEAR", default=2026)
 
@@ -103,10 +105,20 @@ GEOCODE_CACHE_TTL_SECONDS: int = env.int("GEOCODE_CACHE_TTL_SECONDS", default=60
 # --- OpenRouteService ---------------------------------------------------------
 
 ORS_API_KEY: str = env.str("ORS_API_KEY", default="")
-# The exact base URL is confirmed in Phase 3 (api.openrouteservice.org -> api.heigit.org).
-ORS_BASE_URL: str = env.str("ORS_BASE_URL", default="https://api.openrouteservice.org")
+# HeiGIT gateway. api.openrouteservice.org is deprecated (10% quota since 2026-08-27,
+# shutdown 2026-11-02..06). Service paths (/openrouteservice/v2, /pelias/v1) are appended
+# by the client; no trailing slash. See docs/DESIGN_DECISIONS.md (ADR-005).
+ORS_BASE_URL: str = env.str("ORS_BASE_URL", default="https://api.heigit.org").rstrip("/")
 ORS_CONNECT_TIMEOUT_SECONDS: float = env.float("ORS_CONNECT_TIMEOUT_SECONDS", default=5.0)
 ORS_READ_TIMEOUT_SECONDS: float = env.float("ORS_READ_TIMEOUT_SECONDS", default=20.0)
+# Extra attempts on connection errors / 502-504 (not on read timeouts: those would
+# double the user's wait).
+ORS_MAX_RETRIES: int = env.int("ORS_MAX_RETRIES", default=2)
+# Minimum spacing between geocode calls in the batch `geocode_stations --ors-fallback`
+# (free tier: 100 geocode requests/minute).
+ORS_BATCH_GEOCODE_INTERVAL_SECONDS: float = env.float(
+    "ORS_BATCH_GEOCODE_INTERVAL_SECONDS", default=0.7
+)
 
 # --- Django REST Framework / OpenAPI ------------------------------------------
 

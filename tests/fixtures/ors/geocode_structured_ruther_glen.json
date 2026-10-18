@@ -1,0 +1,87 @@
+{
+ "geocoding": {
+  "version": "0.2",
+  "attribution": "https://openrouteservice.org/terms-of-service/#attribution-geocode",
+  "query": {
+   "parsed_text": {
+    "city": "ruther glen",
+    "state": "VA",
+    "country": "USA"
+   },
+   "size": 1,
+   "private": false,
+   "lang": {
+    "name": "English",
+    "iso6391": "en",
+    "iso6393": "eng",
+    "via": "default",
+    "defaulted": true
+   },
+   "querySize": 20
+  },
+  "engine": {
+   "name": "Pelias",
+   "author": "Mapzen",
+   "version": "1.0"
+  },
+  "timestamp": 1792301436096
+ },
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -77.45582,
+     37.92875
+    ]
+   },
+   "properties": {
+    "id": "1126057855",
+    "gid": "whosonfirst:locality:1126057855",
+    "layer": "locality",
+    "source": "whosonfirst",
+    "source_id": "1126057855",
+    "name": "Ruther Glen",
+    "confidence": 1,
+    "match_type": "exact",
+    "accuracy": "centroid",
+    "country": "United States",
+    "country_gid": "whosonfirst:country:85633793",
+    "country_a": "USA",
+    "region": "Virginia",
+    "region_gid": "whosonfirst:region:85688747",
+    "region_a": "VA",
+    "county": "Caroline County",
+    "county_gid": "whosonfirst:county:102085943",
+    "locality": "Ruther Glen",
+    "locality_gid": "whosonfirst:locality:1126057855",
+    "continent": "North America",
+    "continent_gid": "whosonfirst:continent:102191575",
+    "label": "Ruther Glen, VA, USA",
+    "addendum": {
+     "concordances": {
+      "gn:id": 4783310,
+      "gp:id": 2486096,
+      "qs_pg:id": 829475,
+      "wd:id": "Q7383309",
+      "qs:id": 829475
+     }
+    }
+   },
+   "bbox": [
+    -77.47582,
+    37.90875,
+    -77.43582,
+    37.94875
+   ]
+  }
+ ],
+ "bbox": [
+  -77.47582,
+  37.90875,
+  -77.43582,
+  37.94875
+ ]
+}

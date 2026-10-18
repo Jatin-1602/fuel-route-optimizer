@@ -1,0 +1,84 @@
+{
+ "geocoding": {
+  "version": "0.2",
+  "attribution": "https://openrouteservice.org/terms-of-service/#attribution-geocode",
+  "query": {
+   "text": "1600 Pennsylvania Ave NW, Washington, DC",
+   "size": 1,
+   "private": false,
+   "boundary.country": [
+    "USA"
+   ],
+   "lang": {
+    "name": "English",
+    "iso6391": "en",
+    "iso6393": "eng",
+    "via": "default",
+    "defaulted": true
+   },
+   "querySize": 20,
+   "parser": "libpostal",
+   "parsed_text": {
+    "housenumber": "1600",
+    "street": "pennsylvania ave nw",
+    "city": "washington",
+    "state": "dc"
+   }
+  },
+  "engine": {
+   "name": "Pelias",
+   "author": "Mapzen",
+   "version": "1.0"
+  },
+  "timestamp": 1792301434864
+ },
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -77.036548,
+     38.897473
+    ]
+   },
+   "properties": {
+    "id": "node/4957653990",
+    "gid": "openstreetmap:address:node/4957653990",
+    "layer": "address",
+    "source": "openstreetmap",
+    "source_id": "node/4957653990",
+    "name": "1600 Pennsylvania Avenue NW",
+    "housenumber": "1600",
+    "street": "Pennsylvania Avenue NW",
+    "postalcode": "20500",
+    "confidence": 1,
+    "match_type": "exact",
+    "accuracy": "point",
+    "country": "United States",
+    "country_gid": "whosonfirst:country:85633793",
+    "country_a": "USA",
+    "region": "District of Columbia",
+    "region_gid": "whosonfirst:region:85688741",
+    "region_a": "DC",
+    "county": "District of Columbia",
+    "county_gid": "whosonfirst:county:1377370667",
+    "county_a": "DI",
+    "locality": "Washington",
+    "locality_gid": "whosonfirst:locality:85931779",
+    "neighbourhood": "White House Grounds",
+    "neighbourhood_gid": "whosonfirst:neighbourhood:1108724059",
+    "continent": "North America",
+    "continent_gid": "whosonfirst:continent:102191575",
+    "label": "1600 Pennsylvania Avenue NW, Washington, DC, USA"
+   }
+  }
+ ],
+ "bbox": [
+  -77.036548,
+  38.897473,
+  -77.036548,
+  38.897473
+ ]
+}
