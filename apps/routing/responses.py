@@ -8,6 +8,7 @@ import numpy as np
 from django.conf import settings
 
 from apps.routing.services.geo import haversine_miles
+from apps.routing.services.geocoding import ResolvedLocation
 from apps.routing.services.optimizer import FuelPlan, StartMode
 from apps.routing.services.ors_client import Route
 from apps.routing.services.planner import TripPlan
@@ -213,7 +214,7 @@ def build_route_response(
     }
 
 
-def _location(location: Any) -> dict[str, Any]:
+def _location(location: ResolvedLocation) -> dict[str, Any]:
     return {
         "query": location.query,
         "name": location.name,

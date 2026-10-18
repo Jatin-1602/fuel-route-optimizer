@@ -11,6 +11,7 @@ from apps.routing.exceptions import (
     InvalidInputError,
     LocationOutsideUSAError,
     RouteUnreachableError,
+    RoutingProviderError,
     SameLocationError,
     StationDataUnavailableError,
 )
@@ -238,3 +239,11 @@ def test_stop_penalty_all_start_fuel_modes_on_real_route(
     assert fp.objective <= pure.total_cost + 15 * len(pure.stops) + 1e-6
     assert fp.total_cost >= pure.total_cost - 1e-6
     assert trip.max_leg_miles <= 500
+
+
+def test_degenerate_route_from_provider_is_a_502_style_error(stations, client, mocked) -> None:
+    one_point = load_fixture("directions_chicago_houston.json")
+    one_point["features"][0]["geometry"]["coordinates"] = [[-87.68, 41.84]]
+    mocked.post(CAR_URL, json=one_point)
+    with pytest.raises(RoutingProviderError, match="unusable route"):
+        plan(stations, client, "Chicago, IL", "Houston, TX")

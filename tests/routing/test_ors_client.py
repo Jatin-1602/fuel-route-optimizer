@@ -55,7 +55,6 @@ def test_directions_parses_real_fixture_and_sends_lon_lat(mocked, client) -> Non
     assert len(route.coordinates) == 6116
     lon, lat = route.coordinates[0]
     assert (lon, lat) == pytest.approx((-96.76642, 32.79325))  # GeoJSON order is (lon, lat)
-    assert route.bbox == pytest.approx((-104.905137, 32.781836, -96.766416, 39.763034))
 
     body = json.loads(mocked.calls[0].request.body)
     assert body["coordinates"] == [[DALLAS[1], DALLAS[0]], [DENVER[1], DENVER[0]]]

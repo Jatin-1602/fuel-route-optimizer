@@ -104,7 +104,6 @@ class Route:
     coordinates: list[tuple[float, float]]
     distance_m: float
     duration_s: float
-    bbox: tuple[float, float, float, float] | None = None  # (min_lon, min_lat, max_lon, max_lat)
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,12 +207,10 @@ class ORSClient:
             feature = data["features"][0]
             summary = feature["properties"]["summary"]
             coordinates = [(float(c[0]), float(c[1])) for c in feature["geometry"]["coordinates"]]
-            bbox = tuple(data["bbox"]) if len(data.get("bbox", [])) == 4 else None
             return Route(
                 coordinates=coordinates,
                 distance_m=float(summary.get("distance", 0.0)),
                 duration_s=float(summary.get("duration", 0.0)),
-                bbox=bbox,  # type: ignore[arg-type]
             )
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise RoutingProviderError("Unexpected directions response format.") from exc

@@ -91,3 +91,10 @@ def test_geocode_stations_command_on_real_data(tmp_path: Path) -> None:
 def test_health_reports_station_count(api_client) -> None:
     load_stations([_station(1), _station(2), _station(3)])
     assert api_client.get(reverse("health")).json()["stations_loaded"] == 3
+
+
+def test_geocode_stations_command_reports_bad_csv_cleanly(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.csv"
+    bad.write_text("OPIS Truckstop ID,City\n1,Dallas\n", encoding="utf-8")
+    with pytest.raises(CommandError, match="missing columns"):
+        call_command("geocode_stations", "--input", str(bad), "--output", str(tmp_path / "o.csv"))

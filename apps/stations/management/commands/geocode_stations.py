@@ -68,14 +68,20 @@ class Command(BaseCommand):
         if options["ors_fallback"] and options["no_ors_cache"]:
             raise CommandError("--ors-fallback and --no-ors-cache are mutually exclusive.")
 
-        stations, cleaning = clean_fuel_csv(options["input"])
+        try:
+            stations, cleaning = clean_fuel_csv(options["input"])
+        except (OSError, ValueError) as exc:  # missing file, missing columns
+            raise CommandError(f"Cannot read the fuel price CSV: {exc}") from exc
         places = read_places_csv(options["places"])
         index = PlaceIndex(places)
 
         decisions: dict[tuple[str, str], FallbackDecision] = {}
         calls = 0
         if not options["no_ors_cache"]:
-            cache = FallbackCache(options["ors_cache"])
+            try:
+                cache = FallbackCache(options["ors_cache"])
+            except ValueError as exc:  # unsupported cache version / corrupt file
+                raise CommandError(str(exc)) from exc
             pairs = find_unmatched_pairs(stations, index)
             if options["ors_fallback"]:
                 calls = self._fetch(pairs, cache)
