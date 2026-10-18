@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fuel Route Map</title>
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
+        integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb"
+        crossorigin="anonymous" referrerpolicy="no-referrer">
+  <style>
+    :root {
+      --panel-bg: rgba(255, 255, 255, 0.96);
+      --panel-fg: #1f2933;
+      --muted: #52606d;
+      --accent: #0b6bcb;
+      --line: #0b6bcb;
+      --border: #d9e2ec;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --panel-bg: rgba(24, 28, 33, 0.95);
+        --panel-fg: #e4e7eb;
+        --muted: #9aa5b1;
+        --accent: #5aa9f4;
+        --border: #3e4c59;
+      }
+    }
+    html, body { height: 100%; margin: 0; background: #e5e3df; }
+    body { font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    #map { position: absolute; inset: 0; }
+    .panel {
+      position: absolute; z-index: 1000; top: 12px; right: 12px;
+      width: min(360px, calc(100vw - 32px)); max-height: calc(100vh - 24px); overflow: auto;
+      background: var(--panel-bg); color: var(--panel-fg);
+      border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18); padding: 14px 16px;
+    }
+    .panel h1 { font-size: 16px; margin: 0 0 2px; }
+    .panel .sub { color: var(--muted); margin: 0 0 10px; }
+    .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+    .kpi { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+    .kpi b { display: block; font-size: 17px; }
+    .kpi span { color: var(--muted); font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    th, td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; }
+    td.n { text-align: right; font-variant-numeric: tabular-nums; }
+    details { margin-top: 8px; color: var(--muted); font-size: 12px; }
+    details ul { padding-left: 18px; margin: 6px 0; }
+    a { color: var(--accent); }
+    .stop-icon {
+      background: var(--accent); color: #fff; border: 2px solid #fff; border-radius: 50%;
+      width: 24px !important; height: 24px !important; line-height: 20px; text-align: center;
+      font-weight: 700; font-size: 12px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+    }
+    .end-icon {
+      border: 2px solid #fff; border-radius: 50%; width: 14px !important; height: 14px !important;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+    }
+    .end-icon.start { background: #1f9d55; }
+    .end-icon.finish { background: #cc1f1a; }
+    @media (max-width: 600px) {
+      .panel { top: auto; bottom: 12px; right: 12px; left: 12px; width: auto; max-height: 45vh; }
+    }
+  </style>
+</head>
+<body>
+  <div id="map" role="application" aria-label="Route map"></div>
+  <aside class="panel" aria-label="Trip summary">
+    <h1 id="title"></h1>
+    <p class="sub" id="subtitle"></p>
+    <div class="kpis" id="kpis"></div>
+    <table aria-label="Fuel stops">
+      <thead><tr><th>#</th><th>Station</th><th class="n">$/gal</th><th class="n">Gal</th><th class="n">Cost</th></tr></thead>
+      <tbody id="stops"></tbody>
+    </table>
+    <details>
+      <summary>Assumptions</summary>
+      <ul id="assumptions"></ul>
+    </details>
+    <p class="sub" style="margin-top:8px">
+      <a href="{{ json_url }}">JSON response</a> · <span id="calls"></span>
+    </p>
+  </aside>
+
+  {{ trip|json_script:"trip-data" }}
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
+          integrity="sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO"
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script>
+    "use strict";
+    const trip = JSON.parse(document.getElementById("trip-data").textContent);
+    const s = trip.summary;
+    const usd = (v) => v.toLocaleString("en-US", { style: "currency", currency: "USD" });
+    const el = (tag, text, cls) => {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text;
+      if (cls) node.className = cls;
+      return node;
+    };
+
+    // Panel ---------------------------------------------------------------------------
+    document.getElementById("title").textContent = `${trip.start.name} → ${trip.finish.name}`;
+    document.getElementById("subtitle").textContent =
+      `${s.total_distance_miles.toLocaleString()} mi · ${s.estimated_duration_hours} h · ` +
+      `${s.vehicle.max_range_miles} mi range @ ${s.vehicle.mpg} mpg · start: ${s.start_fuel}`;
+    const kpis = [
+      [usd(s.total_fuel_cost), "total fuel cost"],
+      [String(s.number_of_stops), "fuel stops"],
+      [usd(s.estimated_savings), `saved vs avg $${s.average_corridor_price}/gal`],
+      [`$${s.average_price_paid}/gal`, "average paid"],
+    ];
+    if (s.stop_penalty > 0) {
+      kpis.push([`+${usd(s.extra_cost_vs_pure_optimum)}`,
+        `vs cheapest plan (${s.pure_cost_optimum.number_of_stops} stops)`]);
+      kpis.push([`${s.largest_leg_miles} mi`, "longest leg"]);
+    }
+    const kpiBox = document.getElementById("kpis");
+    for (const [value, label] of kpis) {
+      const card = el("div", undefined, "kpi");
+      card.append(el("b", value), el("span", label));
+      kpiBox.append(card);
+    }
+    const tbody = document.getElementById("stops");
+    for (const stop of trip.stops) {
+      const row = el("tr");
+      row.append(
+        el("td", String(stop.order)),
+        el("td", `${stop.name} (${stop.city}, ${stop.state}) · mi ${stop.mile_marker}`),
+        el("td", stop.price_per_gallon.toFixed(3), "n"),
+        el("td", stop.gallons_purchased.toFixed(1), "n"),
+        el("td", usd(stop.cost), "n"),
+      );
+      tbody.append(row);
+    }
+    for (const text of trip.assumptions) document.getElementById("assumptions").append(el("li", text));
+    document.getElementById("calls").textContent =
+      `routing API calls for this page: ${trip.external_api_calls}` + (trip.cache_hit ? " (cached)" : "");
+
+    // Map -----------------------------------------------------------------------------
+    const map = L.map("map", { preferCanvas: true });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
+    const line = L.polyline(trip.line, { color: getComputedStyle(document.documentElement)
+      .getPropertyValue("--line").trim() || "#0b6bcb", weight: 4, opacity: 0.85 }).addTo(map);
+
+    const popup = (rows) => {
+      const box = el("div");
+      rows.forEach(([label, value], i) => {
+        const line = el("div");
+        if (i === 0) line.append(el("b", value));
+        else line.append(el("span", `${label}: `), document.createTextNode(value));
+        box.append(line);
+      });
+      return box;
+    };
+    const endIcon = (kind) => L.divIcon({ className: `end-icon ${kind}`, iconSize: [14, 14] });
+    L.marker([trip.start.lat, trip.start.lon], { icon: endIcon("start"), title: "Start" })
+      .bindPopup(popup([["", `Start: ${trip.start.name}`]])).addTo(map);
+    L.marker([trip.finish.lat, trip.finish.lon], { icon: endIcon("finish"), title: "Finish" })
+      .bindPopup(popup([["", `Finish: ${trip.finish.name}`]])).addTo(map);
+    for (const stop of trip.stops) {
+      const icon = L.divIcon({ className: "stop-icon", html: String(stop.order), iconSize: [24, 24] });
+      L.marker([stop.lat, stop.lon], { icon, title: `Stop ${stop.order}: ${stop.name}` })
+        .bindPopup(popup([
+          ["", `${stop.order}. ${stop.name}`],
+          ["Address", `${stop.address}, ${stop.city}, ${stop.state}`],
+          ["Price", `$${stop.price_per_gallon.toFixed(3)}/gal`],
+          ["Buy", `${stop.gallons_purchased.toFixed(2)} gal = ${usd(stop.cost)}`],
+          ["Mile", `${stop.mile_marker} (${stop.off_route_miles} mi off route)`],
+          ["Tank", `${stop.fuel_on_arrival_gallons.toFixed(1)} → ${stop.fuel_on_departure_gallons.toFixed(1)} gal`],
+        ]))
+        .addTo(map);
+    }
+    map.fitBounds(line.getBounds(), { padding: [30, 30] });
+  </script>
+</body>
+</html>

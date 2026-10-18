@@ -15,6 +15,7 @@ def test_health_ok(api_client) -> None:
     assert body["status"] == "ok"
     assert body["django_version"] == django.get_version()
     assert body["stations_loaded"] == 0
+    assert body["places_loaded"] > 40_000
     assert body["ors_api_key_configured"] is False
 
 

@@ -124,6 +124,8 @@ ORS_BATCH_GEOCODE_INTERVAL_SECONDS: float = env.float(
 
 # USD added per fuel stop when choosing a plan (0 = pure cost optimum). See ADR-008.
 DEFAULT_STOP_PENALTY: float = env.float("DEFAULT_STOP_PENALTY", default=15.0)
+# Minimum spacing between route vertices returned to clients (keeps NYC->LA ~11k points).
+RESPONSE_GEOMETRY_SPACING_MILES: float = env.float("RESPONSE_GEOMETRY_SPACING_MILES", default=0.25)
 
 # --- Django REST Framework / OpenAPI ------------------------------------------
 
@@ -132,6 +134,11 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "EXCEPTION_HANDLER": "apps.routing.exception_handler.api_exception_handler",
+    # Route endpoints opt in with `throttle_scope = "route"` (protects the free ORS quota:
+    # 2,000 directions/day, 40/min). Counters live in the default cache.
+    "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
+    "DEFAULT_THROTTLE_RATES": {"route": env.str("ROUTE_THROTTLE_RATE", default="30/min")},
 }
 
 SPECTACULAR_SETTINGS = {

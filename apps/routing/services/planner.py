@@ -176,13 +176,14 @@ def plan_trip(
 ) -> TripPlan:
     """Plan the cheapest refuelling for a trip. Raises ``DomainError`` subclasses."""
     timer = _Timer()
-    geography = geography or get_us_geography()
-    stations = stations if stations is not None else get_station_index()
-    if len(stations) == 0:
-        raise StationDataUnavailableError()
     client = client or get_ors_client()
 
     with timer.section("total"), count_external_calls() as calls:
+        with timer.section("data_load"):  # ~1 s on a cold process, ~0 afterwards
+            geography = geography or get_us_geography()
+            stations = stations if stations is not None else get_station_index()
+        if len(stations) == 0:
+            raise StationDataUnavailableError()
         with timer.section("geocode"):
             start = resolve_location(params.start, geography=geography, client=client)
             finish = resolve_location(params.finish, geography=geography, client=client)
