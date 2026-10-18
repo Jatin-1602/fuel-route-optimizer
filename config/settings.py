@@ -7,6 +7,7 @@ All environment-specific values are read from environment variables (or a local
 from pathlib import Path
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -20,11 +21,12 @@ if _env_file.exists():
 DEBUG: bool = env.bool("DEBUG", default=False)
 
 # A throwaway key is acceptable for local development only; production must set one.
-SECRET_KEY: str = (
-    env.str("SECRET_KEY", default="django-insecure-local-dev-only-change-me")
-    if DEBUG
-    else env.str("SECRET_KEY")
-)
+# An empty value (as in .env.example) counts as unset.
+SECRET_KEY: str = env.str("SECRET_KEY", default="")
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured("SECRET_KEY must be set when DEBUG=False.")
+    SECRET_KEY = "django-insecure-local-dev-only-change-me"
 
 ALLOWED_HOSTS: list[str] = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
