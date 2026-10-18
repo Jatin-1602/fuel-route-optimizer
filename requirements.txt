@@ -6,3 +6,4 @@ django-environ==0.14.0
 requests==2.34.2
 numpy==2.5.4
 scipy==1.18.1
+gunicorn==26.2.0  # production WSGI server (used for the benchmark numbers)

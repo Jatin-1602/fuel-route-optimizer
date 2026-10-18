@@ -1,9 +1,11 @@
 """OpenRouteService (HeiGIT) HTTP client: directions + Pelias geocoding.
 
 * One shared ``requests.Session`` (connection pooling / keep-alive).
-* Connect/read timeouts; a small retry only for connection errors and 502/503/504.
-* Every HTTP attempt is counted in the active :func:`count_external_calls` scope, which
-  the API reports as ``meta.external_api_calls``.
+* Connect/read timeouts (5 s / 10 s); retries for connection errors and 502/503/504
+  (up to 2) and exactly one retry on a read timeout (worst case ~2 x 10 s).
+* Calls (API operations) and HTTP attempts (incl. retries) are counted in the active
+  :func:`count_external_calls` scope; the API reports them as ``meta.external_api_calls``
+  and ``meta.external_api_attempts``.
 * Provider failures are mapped to domain exceptions (``apps.routing.exceptions``).
 * The API key is sent in the ``Authorization`` header and is never logged.
 """
@@ -51,9 +53,15 @@ _RETRYABLE_STATUS: frozenset[int] = frozenset({502, 503, 504})
 
 @dataclass
 class ExternalCallCounter:
-    """Mutable tally of HTTP attempts made to external APIs within one scope."""
+    """Tally of external API usage within one scope.
 
-    count: int = 0
+    ``calls`` counts API operations (one directions or geocode request), which is what
+    the assignment's "one call is ideal" refers to; ``attempts`` counts HTTP requests
+    including retries, so a retried timeout stays visible.
+    """
+
+    calls: int = 0
+    attempts: int = 0
 
 
 _active_counter: ContextVar[ExternalCallCounter | None] = ContextVar(
@@ -63,7 +71,7 @@ _active_counter: ContextVar[ExternalCallCounter | None] = ContextVar(
 
 @contextmanager
 def count_external_calls() -> Iterator[ExternalCallCounter]:
-    """Count ORS HTTP attempts made inside this ``with`` block (request-scoped)."""
+    """Count ORS calls and HTTP attempts made inside this ``with`` block (request-scoped)."""
     counter = ExternalCallCounter()
     token = _active_counter.set(counter)
     try:
@@ -75,7 +83,13 @@ def count_external_calls() -> Iterator[ExternalCallCounter]:
 def _record_call() -> None:
     counter = _active_counter.get()
     if counter is not None:
-        counter.count += 1
+        counter.calls += 1
+
+
+def _record_attempt() -> None:
+    counter = _active_counter.get()
+    if counter is not None:
+        counter.attempts += 1
 
 
 # --- Results ------------------------------------------------------------------------------
@@ -138,8 +152,9 @@ class ORSClient:
         api_key: str,
         base_url: str,
         connect_timeout: float = 5.0,
-        read_timeout: float = 20.0,
+        read_timeout: float = 10.0,
         max_retries: int = 2,
+        read_timeout_retries: int = 1,
         backoff_seconds: float = 0.25,
         session: requests.Session | None = None,
     ) -> None:
@@ -147,6 +162,7 @@ class ORSClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = (connect_timeout, read_timeout)
         self.max_retries = max_retries
+        self.read_timeout_retries = read_timeout_retries
         self.backoff_seconds = backoff_seconds
         self._session = session or requests.Session()
         self._session.headers.update(
@@ -216,23 +232,36 @@ class ORSClient:
             raise RoutingNotConfiguredError()
         url = f"{self.base_url}{path}"
         headers = {"Authorization": self._api_key}
-        attempts = self.max_retries + 1
+        # Two separate retry budgets. Both requests we make (directions, geocode) are
+        # idempotent, so repeating them is safe.
+        _record_call()
+        transient_left = self.max_retries  # connection errors, 502/503/504
+        timeouts_left = self.read_timeout_retries  # read timeouts: bounded worst-case wait
+        attempt = 0
 
-        for attempt in range(1, attempts + 1):
-            _record_call()
+        while True:
+            attempt += 1
+            _record_attempt()
             started = time.perf_counter()
             try:
                 response = self._session.request(
                     method, url, headers=headers, timeout=self.timeout, **kwargs
                 )
             except requests.ReadTimeout as exc:
-                logger.warning("ORS %s %s read timeout after %.0f ms", method, path, _ms(started))
+                logger.warning(
+                    "ORS %s %s read timeout after %.0f ms (attempt %d)",
+                    method, path, _ms(started), attempt,
+                )  # fmt: skip
+                if timeouts_left > 0:
+                    timeouts_left -= 1
+                    continue
                 raise RoutingProviderTimeoutError() from exc
             except (requests.ConnectionError, requests.Timeout) as exc:  # incl. connect timeout
                 logger.warning(
                     "ORS %s %s connection error (attempt %d): %s", method, path, attempt, exc
                 )
-                if attempt < attempts:
+                if transient_left > 0:
+                    transient_left -= 1
                     self._sleep(attempt)
                     continue
                 raise RoutingProviderUnavailableError() from exc
@@ -241,12 +270,11 @@ class ORSClient:
                 "ORS %s %s -> %d in %.0f ms (attempt %d)",
                 method, path, response.status_code, _ms(started), attempt,
             )  # fmt: skip
-            if response.status_code in _RETRYABLE_STATUS and attempt < attempts:
+            if response.status_code in _RETRYABLE_STATUS and transient_left > 0:
+                transient_left -= 1
                 self._sleep(attempt)
                 continue
             return self._handle(response)
-
-        raise AssertionError("unreachable")  # pragma: no cover
 
     def _handle(self, response: requests.Response) -> dict[str, Any]:
         status = response.status_code
@@ -306,4 +334,5 @@ def get_ors_client() -> ORSClient:
         connect_timeout=settings.ORS_CONNECT_TIMEOUT_SECONDS,
         read_timeout=settings.ORS_READ_TIMEOUT_SECONDS,
         max_retries=settings.ORS_MAX_RETRIES,
+        read_timeout_retries=settings.ORS_READ_TIMEOUT_RETRIES,
     )

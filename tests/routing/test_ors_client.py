@@ -112,7 +112,7 @@ def test_geocode_empty_result(mocked, client) -> None:
 # --- Call counting ------------------------------------------------------------------------
 
 
-def test_call_counter_counts_attempts_including_retries(mocked, client) -> None:
+def test_call_counter_separates_calls_from_retry_attempts(mocked, client) -> None:
     mocked.post(DIRECTIONS_URL, status=503)
     mocked.post(DIRECTIONS_URL, json=load_fixture("directions_dallas_denver.json"))
     mocked.get(SEARCH_URL, json=load_fixture("geocode_search_white_house.json"))
@@ -121,7 +121,7 @@ def test_call_counter_counts_attempts_including_retries(mocked, client) -> None:
         client.directions([DALLAS, DENVER])
         client.geocode("1600 Pennsylvania Ave NW, Washington, DC")
 
-    assert counter.count == 3
+    assert (counter.calls, counter.attempts) == (2, 3)
 
 
 def test_call_counter_scopes_are_independent(mocked, client) -> None:
@@ -131,7 +131,7 @@ def test_call_counter_scopes_are_independent(mocked, client) -> None:
         with count_external_calls() as inner:
             client.geocode("b")
         client.geocode("c")
-    assert (outer.count, inner.count) == (2, 1)
+    assert (outer.calls, inner.calls) == (2, 1)
 
 
 def test_calls_outside_a_scope_are_not_counted(mocked, client) -> None:
@@ -139,7 +139,7 @@ def test_calls_outside_a_scope_are_not_counted(mocked, client) -> None:
     client.geocode("a")  # must not raise or leak into a later scope
     with count_external_calls() as counter:
         pass
-    assert counter.count == 0
+    assert (counter.calls, counter.attempts) == (0, 0)
 
 
 # --- Retries and error mapping ------------------------------------------------------------
@@ -167,14 +167,48 @@ def test_connection_error_retried_then_unavailable(mocked, client) -> None:
     mocked.post(DIRECTIONS_URL, body=requests.ConnectionError("boom"))
     with count_external_calls() as counter, pytest.raises(RoutingProviderUnavailableError):
         client.directions([DALLAS, DENVER])
-    assert counter.count == 3
+    assert (counter.calls, counter.attempts) == (1, 3)
 
 
-def test_read_timeout_is_not_retried(mocked, client) -> None:
+def test_read_timeout_retried_exactly_once_then_succeeds(mocked, client) -> None:
     mocked.post(DIRECTIONS_URL, body=requests.ReadTimeout("slow"))
-    with pytest.raises(RoutingProviderTimeoutError):
+    mocked.post(DIRECTIONS_URL, json=load_fixture("directions_dallas_denver.json"))
+
+    with count_external_calls() as counter:
+        route = client.directions([DALLAS, DENVER])
+
+    assert route.distance_m > 0
+    assert (counter.calls, counter.attempts) == (1, 2) and len(mocked.calls) == 2
+
+
+def test_two_read_timeouts_give_504_after_two_attempts(mocked, client) -> None:
+    mocked.post(DIRECTIONS_URL, body=requests.ReadTimeout("slow"))  # repeats for every call
+    with count_external_calls() as counter, pytest.raises(RoutingProviderTimeoutError):
         client.directions([DALLAS, DENVER])
-    assert len(mocked.calls) == 1
+    assert (counter.calls, counter.attempts) == (1, 2) and len(mocked.calls) == 2
+
+
+def test_geocode_read_timeout_also_retried_once(mocked, client) -> None:
+    mocked.get(SEARCH_URL, body=requests.ReadTimeout("slow"))
+    mocked.get(SEARCH_URL, json=load_fixture("geocode_search_white_house.json"))
+    (result,) = client.geocode("1600 Pennsylvania Ave NW, Washington, DC")
+    assert result.region_a == "DC"
+    assert len(mocked.calls) == 2
+
+
+def test_read_timeout_budget_is_separate_from_5xx_budget(mocked, client) -> None:
+    mocked.post(DIRECTIONS_URL, status=503)
+    mocked.post(DIRECTIONS_URL, body=requests.ReadTimeout("slow"))
+    mocked.post(DIRECTIONS_URL, status=502)
+    mocked.post(DIRECTIONS_URL, json=load_fixture("directions_dallas_denver.json"))
+    assert client.directions([DALLAS, DENVER]).distance_m > 0
+    assert len(mocked.calls) == 4  # 2 gateway retries + 1 timeout retry
+
+
+def test_default_timeouts_from_settings(ors_key) -> None:
+    client = get_ors_client()
+    assert client.timeout == (5.0, 10.0)
+    assert client.read_timeout_retries == 1
 
 
 def test_connect_timeout_maps_to_unavailable(mocked, client) -> None:
@@ -237,7 +271,7 @@ def test_missing_key_raises_before_any_request(mocked) -> None:
     client = ORSClient("", ORS_TEST_BASE_URL)
     with count_external_calls() as counter, pytest.raises(RoutingNotConfiguredError):
         client.directions([DALLAS, DENVER])
-    assert counter.count == 0
+    assert (counter.calls, counter.attempts) == (0, 0)
     assert len(mocked.calls) == 0
 
 

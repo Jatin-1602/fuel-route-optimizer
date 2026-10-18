@@ -110,9 +110,10 @@ ORS_API_KEY: str = env.str("ORS_API_KEY", default="")
 # by the client; no trailing slash. See docs/DESIGN_DECISIONS.md (ADR-005).
 ORS_BASE_URL: str = env.str("ORS_BASE_URL", default="https://api.heigit.org").rstrip("/")
 ORS_CONNECT_TIMEOUT_SECONDS: float = env.float("ORS_CONNECT_TIMEOUT_SECONDS", default=5.0)
-ORS_READ_TIMEOUT_SECONDS: float = env.float("ORS_READ_TIMEOUT_SECONDS", default=20.0)
-# Extra attempts on connection errors / 502-504 (not on read timeouts: those would
-# double the user's wait).
+# A normal NYC->LA directions call takes ~2 s; a stalled one is cut at 10 s and retried once.
+ORS_READ_TIMEOUT_SECONDS: float = env.float("ORS_READ_TIMEOUT_SECONDS", default=10.0)
+ORS_READ_TIMEOUT_RETRIES: int = env.int("ORS_READ_TIMEOUT_RETRIES", default=1)
+# Extra attempts on connection errors / 502-504.
 ORS_MAX_RETRIES: int = env.int("ORS_MAX_RETRIES", default=2)
 # Minimum spacing between geocode calls in the batch `geocode_stations --ors-fallback`
 # (free tier: 100 geocode requests/minute).

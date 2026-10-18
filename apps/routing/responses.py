@@ -201,6 +201,7 @@ def build_route_response(
         "assumptions": assumptions(trip),
         "meta": {
             "external_api_calls": trip.external_api_calls,
+            "external_api_attempts": trip.external_api_attempts,
             "cache_hit": trip.route_cache_hit,
             "timings_ms": {k: round(v, 1) for k, v in timings_ms.items()},
             "stations_considered": trip.stations_considered,

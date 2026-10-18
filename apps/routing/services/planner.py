@@ -24,6 +24,7 @@ from apps.routing.exceptions import (
     SameLocationError,
     StationDataUnavailableError,
 )
+from apps.routing.services.cache_keys import namespaced_key
 from apps.routing.services.corridor import (
     Corridor,
     StationIndex,
@@ -105,7 +106,8 @@ class TripPlan:
     stations_considered: int
     corridor_average_price: float
     max_leg_miles: float
-    external_api_calls: int
+    external_api_calls: int  # API operations (directions/geocode requests)
+    external_api_attempts: int  # HTTP requests incl. retries
     route_cache_hit: bool
     timings_ms: dict[str, float]
 
@@ -150,7 +152,7 @@ class _Timer:
 def route_cache_key(start: ResolvedLocation, finish: ResolvedLocation, profile: str) -> str:
     """Cache key for a route: profile + endpoints rounded to ~1 m."""
     raw = f"{profile}|{start.lat:.5f},{start.lon:.5f}|{finish.lat:.5f},{finish.lon:.5f}"
-    return "route:v1:" + hashlib.sha256(raw.encode()).hexdigest()[:32]
+    return namespaced_key("route", "v1:" + hashlib.sha256(raw.encode()).hexdigest()[:32])
 
 
 def get_route(
@@ -226,7 +228,8 @@ def plan_trip(
         stations_considered=len(corridor),
         corridor_average_price=float(corridor.price.mean()) if len(corridor) else 0.0,
         max_leg_miles=float(legs.max()),
-        external_api_calls=calls.count,
+        external_api_calls=calls.calls,
+        external_api_attempts=calls.attempts,
         route_cache_hit=cache_hit,
         timings_ms=timer.ms,
     )

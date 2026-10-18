@@ -352,3 +352,12 @@ def test_openapi_schema_is_valid_and_documents_route_endpoints(api_client) -> No
     schema = out.getvalue()
     assert "/api/v1/route/" in schema and "/api/v1/route/map/" in schema
     assert "stop_penalty" in schema and "pure_cost_optimum" in schema
+
+
+def test_read_timeout_retried_once_is_reported_as_one_call_two_attempts(api_client, mocked) -> None:
+    mocked.post(CAR_URL, body=requests.ReadTimeout("ORS stalled"))
+    mocked.post(CAR_URL, json=load_fixture("directions_chicago_houston.json"))
+
+    meta = api_client.get(ROUTE, CHI_HOU).json()["meta"]
+
+    assert (meta["external_api_calls"], meta["external_api_attempts"]) == (1, 2)

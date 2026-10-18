@@ -25,6 +25,7 @@ from apps.routing.serializers import (
     RouteRequestSerializer,
     RouteResponseSerializer,
 )
+from apps.routing.services.cache_keys import namespaced_key
 from apps.routing.services.corridor import get_station_index
 from apps.routing.services.geocoding import get_us_geography
 from apps.routing.services.planner import plan_trip
@@ -80,7 +81,7 @@ def _response_cache_key(kind: str, validated: dict[str, Any]) -> str:
         for k, v in sorted(validated.items())
     }
     raw = json.dumps({"kind": kind, "data": data_version(), **normalised}, sort_keys=True)
-    return f"response:v1:{kind}:" + hashlib.sha256(raw.encode()).hexdigest()[:32]
+    return namespaced_key("response", f"v1:{kind}:" + hashlib.sha256(raw.encode()).hexdigest()[:32])
 
 
 def _elapsed_ms(started: float) -> float:
@@ -155,6 +156,7 @@ class RouteView(APIView):
             logger.info("Response cache hit for %s -> %s", validated["start"], validated["finish"])
             body["meta"].update(
                 external_api_calls=0,
+                external_api_attempts=0,
                 cache_hit=True,
                 timings_ms={"response_cache": _elapsed_ms(started)},
             )

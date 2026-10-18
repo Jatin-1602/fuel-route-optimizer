@@ -131,7 +131,7 @@ def test_coordinates_resolved_offline(geography) -> None:
     with count_external_calls() as calls:
         loc = resolve_location("32.7767,-96.797", geography=geography)
     assert (loc.lat, loc.lon, loc.resolved_by) == (32.7767, -96.797, "coordinates")
-    assert calls.count == 0
+    assert calls.calls == 0
 
 
 def test_coordinates_outside_us_rejected(geography) -> None:
@@ -154,13 +154,13 @@ def test_city_state_resolved_offline_with_zero_calls(geography, query, name) -> 
     with count_external_calls() as calls:
         loc = resolve_location(query, geography=geography)
     assert (loc.name, loc.resolved_by) == (name, "offline")
-    assert calls.count == 0
+    assert calls.calls == 0
 
 
 def test_canadian_city_rejected_with_zero_calls(geography) -> None:
     with count_external_calls() as calls, pytest.raises(LocationOutsideUSAError):
         resolve_location("Toronto, ON", geography=geography)
-    assert calls.count == 0
+    assert calls.calls == 0
 
 
 def test_empty_input_rejected(geography) -> None:
@@ -184,7 +184,7 @@ def test_street_address_uses_one_ors_call_then_cache(geography, mocked, ors_key)
         "1600 Pennsylvania Avenue NW, Washington, DC, USA",
     )
     assert loc.lat == pytest.approx(38.897473)
-    assert (first.count, second.count) == (1, 0)  # normalized text hits the cache
+    assert (first.calls, second.calls) == (1, 0)  # normalized text hits the cache
     assert (again.lat, again.lon) == (loc.lat, loc.lon)
 
 
@@ -193,7 +193,7 @@ def test_unknown_city_in_known_state_falls_back_to_ors(geography, mocked, ors_ke
     with count_external_calls() as calls:
         loc = resolve_location("Ruther Glen, VA", geography=geography)
     assert (loc.resolved_by, loc.name) == ("ors", "Ruther Glen, VA, USA")
-    assert calls.count == 1
+    assert calls.calls == 1
 
 
 def test_ors_result_in_wrong_state_is_rejected(geography, mocked, ors_key) -> None:

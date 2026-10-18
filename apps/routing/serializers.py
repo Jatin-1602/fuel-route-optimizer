@@ -155,7 +155,12 @@ class FuelStopSerializer(serializers.Serializer):
 
 
 class MetaSerializer(serializers.Serializer):
-    external_api_calls = serializers.IntegerField()
+    external_api_calls = serializers.IntegerField(
+        help_text="Routing/geocoding API requests made for this response (0 on a cache hit)."
+    )
+    external_api_attempts = serializers.IntegerField(
+        help_text="HTTP attempts incl. retries (> calls only if the provider timed out or failed)."
+    )
     cache_hit = serializers.BooleanField()
     timings_ms = serializers.DictField(child=serializers.FloatField())
     stations_considered = serializers.IntegerField()

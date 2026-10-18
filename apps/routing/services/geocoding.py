@@ -25,6 +25,7 @@ from apps.routing.exceptions import (
     LocationNotFoundError,
     LocationOutsideUSAError,
 )
+from apps.routing.services.cache_keys import namespaced_key
 from apps.routing.services.geo import chord_to_miles, to_unit_vectors
 from apps.routing.services.ors_client import GeocodeResult, ORSClient, get_ors_client
 from apps.stations.services.gazetteer import (
@@ -184,7 +185,7 @@ def parse_city_state(text: str) -> tuple[str, str] | None:
 
 def _cache_key(text: str) -> str:
     digest = hashlib.sha256(" ".join(text.lower().split()).encode()).hexdigest()[:32]
-    return f"geocode:v1:{digest}"
+    return namespaced_key("geocode", f"v1:{digest}")
 
 
 def geocode_cached(text: str, client: ORSClient) -> list[GeocodeResult]:
