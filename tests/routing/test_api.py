@@ -332,6 +332,16 @@ def test_map_escapes_data(api_client, mocked) -> None:
     assert "<" not in trip_json  # json_script escapes <, >, & so data cannot break out
 
 
+def test_map_tiles_send_an_origin_referrer(api_client, mocked) -> None:
+    # OSM blocks tile requests without a Referer, and Django's default same-origin policy
+    # sends none cross-origin, so the tile layer must opt in (ADR-021).
+    nyc_la(mocked)
+    html = api_client.get(MAP, NYC_LA).content.decode()
+    assert "https://tile.openstreetmap.org/{z}/{x}/{y}.png" in html
+    assert 'referrerPolicy: "strict-origin-when-cross-origin"' in html
+    assert "OpenStreetMap</a> contributors" in html
+
+
 def test_map_error_page(api_client) -> None:
     page = api_client.get(MAP, {"start": "Toronto, ON", "finish": "Chicago, IL"})
     assert page.status_code == 422

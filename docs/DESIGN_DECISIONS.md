@@ -24,6 +24,7 @@ Short ADR-style entries: context → decision → consequences.
 | 018 | Lazy in-memory data; gunicorn `--preload` + `WARM_ON_STARTUP` |
 | 019 | Response design |
 | 020 | Security review: fixes and accepted risks |
+| 021 | Map tiles: send an origin-only Referer to OpenStreetMap |
 | — | [What I would do with more time](#what-i-would-do-with-more-time) |
 
 ---
@@ -397,6 +398,16 @@ The regression tests are in `tests/test_security.py`.
 | `provider_message` from ORS appears in 502 details | It helps debugging. Our API key is redacted from it before it's returned (tested). |
 | Admin at `/admin/` | Requires a superuser, protected by sessions and CSRF. Can be moved or disabled in production. |
 | `pip-audit` isn't in `requirements-dev.txt` | It keeps the reviewer install lean. Run it in CI or on demand (`docs/SETUP.md`). |
+
+---
+
+## ADR-021 — Map tiles: send an origin-only Referer to OpenStreetMap
+
+**Context.** The map page showed OpenStreetMap's "Access blocked" tiles. OSM's [tile usage policy](https://operations.osmfoundation.org/policies/tiles/) requires a `Referer`, and Django's default `Referrer-Policy: same-origin` (`SECURE_REFERRER_POLICY`) sends none to other origins. Without one, `tile.openstreetmap.org` answers with a blocked image and an `x-blocked: No referer sent` header (an HTTP 200, not a real tile).
+
+**Decision.** Set `referrerPolicy: "strict-origin-when-cross-origin"` on the Leaflet tile layer only (Leaflet ≥ 1.9). Tile requests then carry just the page origin (e.g. `http://localhost:8000/`), never the path or the query string with the trip's locations. The site-wide policy stays `same-origin`, and the attribution stays.
+
+**Consequences.** Verified in headless Chrome: all 28 tile requests sent `Referer: http://localhost:8000/` and got 200 with no `x-blocked` header. If OSM ever blocks the deployment anyway, CARTO's free basemap is a drop-in fallback. A test checks the template keeps the policy.
 
 ---
 
